@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewportWidth="960" viewportHeight="960">
+	<path fill="@color/black" d="M180,180 h600 a50,50 0 0 1 50,50 v90 a50,50 0 0 1 -50,50 h-600 a50,50 0 0 1 -50,-50 v-90 a50,50 0 0 1 50,-50 z"/>
+	<path fill="@color/black" d="M180,400 h600 a50,50 0 0 1 50,50 v340 a50,50 0 0 1 -50,50 h-600 a50,50 0 0 1 -50,-50 v-340 a50,50 0 0 1 50,-50 z"/>
+	<path fill="@color/black" d="M250,100 a30,30 0 0 1 30,-30 h50 a30,30 0 0 1 30,30 v140 a30,30 0 0 1 -30,30 h-50 a30,30 0 0 1 -30,-30 z"/>
+	<path fill="@color/black" d="M600,100 a30,30 0 0 1 30,-30 h50 a30,30 0 0 1 30,30 v140 a30,30 0 0 1 -30,30 h-50 a30,30 0 0 1 -30,-30 z"/>
+</svg>
