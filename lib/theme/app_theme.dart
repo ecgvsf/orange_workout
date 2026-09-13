@@ -20,7 +20,7 @@ final ThemeData workoutTheme = ThemeData(
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
   bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-    backgroundColor: Color(0xFF1E1E1E),
+    backgroundColor: Color(0xFF434343),
     selectedItemColor: Color(0xFFFF9700),
     unselectedItemColor: Color(0xFFA4A4A4),
   ),

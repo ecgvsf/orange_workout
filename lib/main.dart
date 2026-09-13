@@ -13,6 +13,7 @@ import 'models/workout_set.dart';
 import 'models/user_profile.dart';
 import 'pages/bottom_nav.dart';
 import 'pages/home_screen.dart';
+import 'pages/calendar_screen.dart';
 
 void main() async {
   // Garantisce che i binding di Flutter siano inizializzati prima di usare plugin nativi (come il file system)
@@ -66,10 +67,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   // Lista delle schermate dell'applicazione.
   // Per ora usiamo dei semplici "Center text" come segnaposto.
   late final List<Widget> _screens = [
-    HomeScreen(),
-    const Center(
-      child: Text('Calendario Storico', style: TextStyle(fontSize: 24)),
-    ),
+    const HomeScreen(),
+    const CalendarScreen(),
     const Center(
       child: Text('Motore di Allenamento', style: TextStyle(fontSize: 24)),
     ),

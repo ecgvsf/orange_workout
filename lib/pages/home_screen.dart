@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: const Color.fromARGB(255, 0, 0, 0),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -80,8 +80,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              const Divider(color: Color(0xFFFF9700), thickness: 1, height: 1),
-              const SizedBox(height: 16),
+              const Divider(color: Color(0xFFFF9700), thickness: 3, height: 1),
+              const SizedBox(height: 20),
 
               // Calendario Settimanale
               Row(
@@ -126,6 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             child: Column(
                               children: [
+                                const SizedBox(height: 4),
                                 Text(
                                   date.day.toString().padLeft(2, '0'),
                                   style: TextStyle(
@@ -133,11 +134,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                         isSelected
                                             ? Colors.white
                                             : Colors.white54,
-                                    fontSize: 26,
+                                    fontSize: 24,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 2),
                                 Text(
                                   _dayNames[date.weekday - 1],
                                   style: TextStyle(
@@ -148,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     fontSize: 14,
                                   ),
                                 ),
+                                const SizedBox(height: 4),
                               ],
                             ),
                           ),
@@ -156,8 +158,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     }).toList(),
               ),
 
-              const SizedBox(height: 16),
-              const Divider(color: Color(0xFFFF9700), thickness: 1, height: 1),
+              const SizedBox(height: 20),
+              const Divider(color: Color(0xFFFF9700), thickness: 3, height: 1),
               const SizedBox(height: 16),
 
               // Layout Modulare

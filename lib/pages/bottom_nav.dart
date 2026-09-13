@@ -52,7 +52,7 @@ class FloatingWorkoutNavBar extends StatelessWidget {
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(
-                          alpha: 0.55,
+                          alpha: 0.45,
                         ), // Ombra di profondità scura
                         blurRadius: 10,
                         offset: const Offset(0, 6),
@@ -100,39 +100,43 @@ class FloatingWorkoutNavBar extends StatelessWidget {
 class _NavBarPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = const Color(0xFF2C2C2E)
-          ..style = PaintingStyle.fill;
-
-    final path = Path();
     final double w = size.width;
     final double h = size.height;
-    const double radius = 28.0; // Raggio degli angoli smussati
-
+    const double radius = 28.0;
     final double center = w / 2;
 
+    // --- 1. COSTRUZIONE DEL PERCORSO SUPERIORE (PER L'OMBRA D'ACCENTO VERSO L'ALTO) ---
+    final topEdgePath = Path();
+    topEdgePath.moveTo(0, radius);
+    topEdgePath.quadraticBezierTo(0, 0, radius, 0);
+    topEdgePath.lineTo(center - 75, 0);
+    topEdgePath.cubicTo(center - 38, 0, center - 32, -26, center, -26);
+    topEdgePath.cubicTo(center + 32, -26, center + 38, 0, center + 75, 0);
+    topEdgePath.lineTo(w - radius, 0);
+    topEdgePath.quadraticBezierTo(w, 0, w, radius);
+
+    // Ombra/glow superiore scura che proietta verso l'alto lungo il profilo della curva
+    final Paint topShadowPaint =
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.60)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5.0
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+
+    // Eseguiamo un leggero offset negativo sull'asse Y per far risaltare l'ombra verso l'alto
+    canvas.save();
+    canvas.translate(0, -2.5);
+    canvas.drawPath(topEdgePath, topShadowPaint);
+    canvas.restore();
+
+    // --- 2. COSTRUZIONE DEL CORPO COMPLETO DELLA CARD ---
+    final path = Path();
     path.moveTo(0, radius);
     path.quadraticBezierTo(0, 0, radius, 0);
 
-    // Curva di Bézier ammorbidita e proporzionata alla nuova altezza
     path.lineTo(center - 75, 0);
-    path.cubicTo(
-      center - 38,
-      0, // Controllo inferiore sx
-      center - 32,
-      -26, // Controllo superiore sx
-      center,
-      -26, // Picco centrale
-    );
-    path.cubicTo(
-      center + 32,
-      -26, // Controllo superiore dx
-      center + 38,
-      0, // Controllo inferiore dx
-      center + 75,
-      0, // Ritorno alla linea piana
-    );
+    path.cubicTo(center - 38, 0, center - 32, -26, center, -26);
+    path.cubicTo(center + 32, -26, center + 38, 0, center + 75, 0);
 
     path.lineTo(w - radius, 0);
     path.quadraticBezierTo(w, 0, w, radius);
@@ -142,8 +146,23 @@ class _NavBarPainter extends CustomPainter {
     path.quadraticBezierTo(0, h, 0, h - radius);
     path.close();
 
-    canvas.drawShadow(path, Colors.black, 10.0, true);
+    // Ombra volumetrica globale del corpo della navbar
+    canvas.drawShadow(path, Colors.black, 12.0, true);
+
+    // Riempimento solido del fondo
+    final paint =
+        Paint()
+          ..color = const Color(0xFF434343)
+          ..style = PaintingStyle.fill;
     canvas.drawPath(path, paint);
+
+    // Rifinitura del bordo superiore (sottile hairline illuminata per stacco netto)
+    final Paint borderHighlight =
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.08)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0;
+    canvas.drawPath(topEdgePath, borderHighlight);
   }
 
   @override
