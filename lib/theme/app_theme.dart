@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 final ThemeData workoutTheme = ThemeData(
   brightness: Brightness.dark,
+  fontFamily: 'Comfortaa',
   scaffoldBackgroundColor: const Color(0xFF121212),
   primaryColor: const Color(0xFFFF9700),
   colorScheme: const ColorScheme.dark(

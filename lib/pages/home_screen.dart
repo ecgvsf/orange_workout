@@ -1,177 +1,238 @@
 import 'package:flutter/material.dart';
+import '../widgets/volume_chart_card.dart';
+import '../widgets/muscle_heatmap_card.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // Generazione dei giorni della settimana. In produzione, questi dati
-    // verranno popolati dinamicamente calcolando la data odierna.
-    final List<Map<String, dynamic>> weekDays = [
-      {'day': '31', 'name': 'Lun', 'isCurrent': false},
-      {
-        'day': '01',
-        'name': 'Mar',
-        'isCurrent': true,
-      }, // Giorno corrente evidenziato
-      {'day': '02', 'name': 'Mer', 'isCurrent': false},
-      {'day': '03', 'name': 'Gio', 'isCurrent': false},
-      {'day': '04', 'name': 'Ven', 'isCurrent': false},
-      {'day': '05', 'name': 'Sab', 'isCurrent': false},
-      {'day': '06', 'name': 'Dom', 'isCurrent': false},
-    ];
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
+class _HomeScreenState extends State<HomeScreen> {
+  late DateTime _selectedDate;
+  late List<DateTime> _currentWeek;
+
+  final List<String> _dayNames = [
+    'Lun',
+    'Mar',
+    'Mer',
+    'Gio',
+    'Ven',
+    'Sab',
+    'Dom',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _selectedDate = DateTime(now.year, now.month, now.day);
+    _currentWeek = _generateCurrentWeek(_selectedDate);
+  }
+
+  List<DateTime> _generateCurrentWeek(DateTime referenceDate) {
+    final int currentWeekday = referenceDate.weekday;
+    final DateTime monday = referenceDate.subtract(
+      Duration(days: currentWeekday - 1),
+    );
+    return List.generate(7, (index) => monday.add(Duration(days: index)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212), // Sfondo scuro globale
+      backgroundColor: const Color(0xFF121212),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- INTESTAZIONE ---
+              // Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'Hi, Andrea', //
+                    'Hi, Andrea',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.add_circle_outline_rounded,
-                      color: Color(0xFFFF9700),
-                      size: 32,
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9700),
+                      borderRadius: BorderRadius.circular(18),
                     ),
-                    onPressed: () {
-                      // Logica per aggiungere nuove card statistiche
-                    },
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.settings,
+                        size: 32,
+                        color: Colors.white,
+                      ),
+                      onPressed: () {
+                        // Navigazione Impostazioni
+                      },
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              const Divider(color: Color(0xFFFF9700), thickness: 1, height: 1),
+              const SizedBox(height: 16),
 
-              // --- CALENDARIO ADATTIVO ---
-              // Sfruttando Expanded, i giorni si distribuiscono equamente su tutta la larghezza[cite: 3]
+              // Calendario Settimanale
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children:
-                    weekDays.map((item) {
-                      final bool isCurrent = item['isCurrent'];
+                    _currentWeek.map((date) {
+                      final bool isSelected =
+                          date.year == _selectedDate.year &&
+                          date.month == _selectedDate.month &&
+                          date.day == _selectedDate.day;
+
+                      final now = DateTime.now();
+                      final bool isToday =
+                          date.year == now.year &&
+                          date.month == now.month &&
+                          date.day == now.day;
+
                       return Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color:
-                                isCurrent
-                                    ? const Color(0xFFFF9700)
-                                    : const Color(0xFF1E1E1E),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedDate = date;
+                            });
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
                               color:
-                                  isCurrent
-                                      ? Colors.transparent
-                                      : Colors.white12,
+                                  isSelected
+                                      ? const Color(0xFFFF9700)
+                                      : const Color.fromARGB(0, 30, 30, 30),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color:
+                                    isSelected
+                                        ? Colors.transparent
+                                        : (isToday
+                                            ? Colors.white54
+                                            : Colors.white12),
+                              ),
                             ),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                item['day'],
-                                style: TextStyle(
-                                  color:
-                                      isCurrent ? Colors.black : Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
+                            child: Column(
+                              children: [
+                                Text(
+                                  date.day.toString().padLeft(2, '0'),
+                                  style: TextStyle(
+                                    color:
+                                        isSelected
+                                            ? Colors.white
+                                            : Colors.white54,
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                item['name'],
-                                style: TextStyle(
-                                  color:
-                                      isCurrent
-                                          ? Colors.black87
-                                          : Colors.white54,
-                                  fontSize: 12,
+                                const SizedBox(height: 4),
+                                Text(
+                                  _dayNames[date.weekday - 1],
+                                  style: TextStyle(
+                                    color:
+                                        isSelected
+                                            ? Colors.white
+                                            : Colors.white54,
+                                    fontSize: 14,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       );
                     }).toList(),
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              const Divider(color: Color(0xFFFF9700), thickness: 1, height: 1),
+              const SizedBox(height: 16),
 
-              // --- GRIGLIA ASIMMETRICA NATIVA E RESPONSIVA ---
-              // L'uso combinato di Expanded e flex garantisce che la griglia
-              // riempia esattamente lo spazio rimanente in altezza e larghezza.
+              // Layout Modulare
               Expanded(
-                child: Row(
+                child: Column(
                   children: [
-                    // Colonna di Sinistra
+                    // 1. CARD IN ALTO: Heatmap a tutta larghezza
                     Expanded(
-                      flex: 1,
-                      child: Column(
-                        children: [
-                          // Card Alta (Workout)
-                          Expanded(
-                            flex: 3,
-                            child: _buildActionCard(
-                              title: 'Workout',
-                              subtitle: 'Inizia allenamento',
-                              icon: Icons.fitness_center_rounded,
-                              iconColor: const Color(0xFFFF9700),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          // Card Bassa (Routine)
-                          Expanded(
-                            flex: 2,
-                            child: _buildActionCard(
-                              title: 'Routine',
-                              subtitle: 'Scegli scheda',
-                              icon: Icons.list_alt_rounded,
-                              iconColor: Colors.white,
-                            ),
-                          ),
-                        ],
+                      flex: 20,
+                      child: MuscleHeatmapCard(
+                        title: 'HeatMap',
+                        weeklyWorkouts: const {
+                          'chest': 3,
+                          'deltoidi': 2,
+                          'dorsali': 1,
+                          'bicipiti': 1,
+                          'tricipiti': 2,
+                          'quadricipiti': 2,
+                          'femorali': 2,
+                          'polpacci': 1,
+                          'trapezio': 3,
+                          'lombari': 1,
+                        },
                       ),
                     ),
+                    const SizedBox(height: 12),
 
-                    const SizedBox(width: 12),
-
-                    // Colonna di Destra
+                    // 2. SEZIONE INFERIORE: Due colonne
                     Expanded(
-                      flex: 1,
-                      child: Column(
+                      flex: 12,
+                      child: Row(
                         children: [
-                          // Card Bassa (Statistiche Rapide)
+                          // Colonna Sinistra: Volume Chart
                           Expanded(
-                            flex: 2,
-                            child: _buildActionCard(
+                            child: VolumeChartCard(
                               title: 'Volume',
-                              subtitle: 'Trend Settimanale',
-                              icon: Icons.bar_chart_rounded,
-                              iconColor: Colors.white,
+                              dailyVolumes: const {
+                                1: 4200.0,
+                                2: 0.0,
+                                3: 5600.0,
+                                4: 0.0,
+                                5: 6100.0,
+                                6: 3400.0,
+                                7: 0.0,
+                              },
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          // Card Alta (Esercizi/Storico)
+                          const SizedBox(width: 12),
+
+                          // Colonna Destra: Due card orizzontali (Workout e Routine)
                           Expanded(
-                            flex: 3,
-                            child: _buildActionCard(
-                              title: 'Esercizi',
-                              subtitle: 'Gestisci libreria',
-                              icon: Icons.library_books_rounded,
-                              iconColor: const Color(0xFFFF9700),
+                            child: Column(
+                              children: [
+                                Expanded(
+                                  child: _buildHorizontalActionCard(
+                                    title: 'Workout',
+                                    icon: Icons.fitness_center_rounded,
+                                    iconColor: const Color(0xFFFF9700),
+                                    onTap: () {
+                                      // Azione Avvia Workout
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Expanded(
+                                  child: _buildHorizontalActionCard(
+                                    title: 'Routine',
+                                    icon: Icons.library_books_rounded,
+                                    iconColor: const Color(0xFFFF9700),
+                                    onTap: () {
+                                      // Azione Gestione Routine
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -181,8 +242,8 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
 
-              // Spazio per impedire alla BottomNavigationBar fluttuante di coprire le card inferiori
-              const SizedBox(height: 90),
+              // Spazio di rispetto per non coprire elementi con la FloatingNavBar
+              const SizedBox(height: 35),
             ],
           ),
         ),
@@ -190,48 +251,53 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // Costruttore riutilizzabile per le Card della griglia
-  Widget _buildActionCard({
+  Widget _buildHorizontalActionCard({
     required String title,
-    required String subtitle,
     required IconData icon,
     required Color iconColor,
+    required VoidCallback onTap,
   }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E), // Superficie grigio antracite[cite: 3]
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Icon(icon, color: iconColor, size: 38),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 10.0),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(32),
+        ),
+        child: Row(
+          mainAxisAlignment:
+              MainAxisAlignment
+                  .center, // Centra orizzontalmente tutto il gruppo (icona + testo)
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF121212),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: iconColor, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: const TextStyle(color: Colors.white54, fontSize: 13),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(width: 16),
+          ],
+        ),
       ),
     );
   }

@@ -21,12 +21,13 @@ tasks.register<Delete>("clean") {
 }
 
 subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android {
-                if (namespace == null) {
-                    namespace project.group
-                }
+    plugins.withId("com.android.library") {
+        val androidExt = extensions.findByName("android")
+        if (androidExt != null) {
+            val getNamespace = androidExt.javaClass.getMethod("getNamespace")
+            if (getNamespace.invoke(androidExt) == null) {
+                val setNamespace = androidExt.javaClass.getMethod("setNamespace", String::class.java)
+                setNamespace.invoke(androidExt, project.group.toString().ifEmpty { "com.example.${project.name}" })
             }
         }
     }

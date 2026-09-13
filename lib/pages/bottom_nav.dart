@@ -13,13 +13,15 @@ class FloatingWorkoutNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const double navBarHeight = 76.0; // Altezza aumentata della barra
+
     return SizedBox(
-      height: 70,
+      height: navBarHeight,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           CustomPaint(
-            size: Size(MediaQuery.of(context).size.width, 70),
+            size: Size(MediaQuery.of(context).size.width, navBarHeight),
             painter: _NavBarPainter(),
           ),
           Row(
@@ -29,29 +31,39 @@ class FloatingWorkoutNavBar extends StatelessWidget {
               _buildNavItem('assets/icons/ic_home.svg', 0),
               _buildNavItem('assets/icons/ic_calendar.svg', 1),
               const SizedBox(
-                width: 80,
-              ), // Lo spazio centrale per la tua protuberanza col tasto "+"
+                width: 90, // Spazio allargato per la protuberanza centrale
+              ),
               _buildNavItem('assets/icons/ic_bar_chart.svg', 3),
               _buildNavItem('assets/icons/ic_user.svg', 4),
             ],
           ),
-          // Pulsante "+" ingrandito e centrato matematicamente
+          // Pulsante "+" riadattato e centrato
+          // Pulsante "+" riadattato e centrato con ombra
           Positioned(
-            top: -6, // Rialzato per allinearsi al picco della curva
+            top: -12, // Coordinata allineata con l'altezza e la curva
             left: 0,
             right: 0,
             child: Center(
-              // Forza il centraggio orizzontale assoluto
               child: GestureDetector(
                 onTap: () => onTap(2),
-                child: const CircleAvatar(
-                  radius: 28, // Aumentato da 28 a 34
-                  backgroundColor: Color(0xFFFF9700),
-                  child: Icon(
-                    Icons.add,
-                    color: Colors.white,
-                    size: 38,
-                  ), // Icona più grande
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: 0.55,
+                        ), // Ombra di profondità scura
+                        blurRadius: 10,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: const CircleAvatar(
+                    radius: 34,
+                    backgroundColor: Color(0xFFFF9700),
+                    child: Icon(Icons.add, color: Colors.white, size: 42),
+                  ),
                 ),
               ),
             ),
@@ -67,19 +79,16 @@ class FloatingWorkoutNavBar extends StatelessWidget {
     return GestureDetector(
       onTap: () => onTap(index),
       child: Container(
-        color: Colors.transparent, // Aumenta l'area toccabile
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        color: Colors.transparent, // Aumenta l'area di tocco
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         child: SvgPicture.asset(
           svgPath,
-          width: 32,
-          height: 32,
-          // Cambia colore in base allo stato della tab
+          width: 38, // Icone ingrandite da 32 a 38
+          height: 38,
           colorFilter: ColorFilter.mode(
             isSelected
-                ? const Color(
-                  0xFFFF9700,
-                ) // Il colore primario per la tab attiva
-                : Colors.white70, // Colore desaturato per le tab inattive
+                ? const Color(0xFFFF9700) // Colore primario attivo
+                : Colors.white70, // Colore disattivato
             BlendMode.srcIn,
           ),
         ),
@@ -99,30 +108,29 @@ class _NavBarPainter extends CustomPainter {
     final path = Path();
     final double w = size.width;
     final double h = size.height;
-    const double radius = 24.0;
+    const double radius = 28.0; // Raggio degli angoli smussati
 
-    // Identifica il centro esatto della barra
     final double center = w / 2;
 
     path.moveTo(0, radius);
     path.quadraticBezierTo(0, 0, radius, 0);
 
-    // Disegna la curva di Bézier morbida e larga
-    path.lineTo(center - 65, 0);
+    // Curva di Bézier ammorbidita e proporzionata alla nuova altezza
+    path.lineTo(center - 75, 0);
     path.cubicTo(
-      center - 30,
-      0, // Punto di controllo inferiore sinistro
-      center - 25,
-      -20, // Punto di controllo superiore sinistro
+      center - 38,
+      0, // Controllo inferiore sx
+      center - 32,
+      -26, // Controllo superiore sx
       center,
-      -20, // Picco centrale esatto
+      -26, // Picco centrale
     );
     path.cubicTo(
-      center + 25,
-      -20, // Punto di controllo superiore destro
-      center + 30,
-      0, // Punto di controllo inferiore destro
-      center + 65,
+      center + 32,
+      -26, // Controllo superiore dx
+      center + 38,
+      0, // Controllo inferiore dx
+      center + 75,
       0, // Ritorno alla linea piana
     );
 
@@ -134,7 +142,7 @@ class _NavBarPainter extends CustomPainter {
     path.quadraticBezierTo(0, h, 0, h - radius);
     path.close();
 
-    canvas.drawShadow(path, Colors.black, 8.0, true);
+    canvas.drawShadow(path, Colors.black, 10.0, true);
     canvas.drawPath(path, paint);
   }
 
