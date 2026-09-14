@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:isar/isar.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 // Modello dettagliato per il singolo esercizio
@@ -26,7 +27,8 @@ class CalendarWorkoutSummary {
 }
 
 class CalendarScreen extends StatefulWidget {
-  const CalendarScreen({super.key});
+  final Isar? isar;
+  const CalendarScreen({super.key, this.isar});
 
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
@@ -46,28 +48,28 @@ class _CalendarScreenState extends State<CalendarScreen>
   late final Map<DateTime, List<CalendarWorkoutSummary>> _workoutEvents;
 
   final List<String> _monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
+    'Gennaio',
+    'Febbraio',
+    'Marzo',
+    'Aprile',
+    'Maggio',
+    'Giugno',
+    'Luglio',
+    'Agosto',
+    'Settembre',
+    'Ottobre',
+    'Novembre',
+    'Dicembre',
   ];
 
   final List<String> _weekdayNames = [
-    'mon',
-    'tue',
-    'wed',
-    'thu',
-    'fri',
-    'sat',
-    'sun',
+    'lun',
+    'mar',
+    'mer',
+    'gio',
+    'ven',
+    'sab',
+    'dom',
   ];
 
   @override
@@ -306,7 +308,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
                         Text(
-                          'Mon',
+                          'Lun',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
@@ -314,7 +316,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                           ),
                         ),
                         Text(
-                          'Tue',
+                          'Mar',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
@@ -322,7 +324,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                           ),
                         ),
                         Text(
-                          'Wed',
+                          'Mer',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
@@ -330,7 +332,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                           ),
                         ),
                         Text(
-                          'Thu',
+                          'Gio',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
@@ -338,7 +340,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                           ),
                         ),
                         Text(
-                          'Fri',
+                          'Ven',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
@@ -346,7 +348,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                           ),
                         ),
                         Text(
-                          'Sat',
+                          'Sab',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
@@ -354,7 +356,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                           ),
                         ),
                         Text(
-                          'Sun',
+                          'Dom',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
