@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:isar/isar.dart';
 import 'package:table_calendar/table_calendar.dart';
 
-// Modello dettagliato per il singolo esercizio
+import '../models/exercise.dart';
+import '../models/session.dart';
+import '../models/workout_set.dart';
+
 class ExerciseDetail {
   final String name;
   final String imageUrl;
@@ -44,8 +48,16 @@ class _CalendarScreenState extends State<CalendarScreen>
   late final AnimationController _animController;
   late final Animation<double> _expandAnimation;
 
-  late final Map<DateTime, int> _workoutDots;
-  late final Map<DateTime, List<CalendarWorkoutSummary>> _workoutEvents;
+  // Dati estratti da Isar
+  Map<DateTime, int> _workoutDots = {};
+  Map<DateTime, List<CalendarWorkoutSummary>> _workoutEvents = {};
+  bool _isLoading = true;
+  StreamSubscription? _sessionSubscription;
+  StreamSubscription? _setSubscription;
+
+  // Variabili per il controllo dello scorrimento a singolo mese/settimana
+  double _horizontalDragAccumulator = 0.0;
+  bool _hasTriggeredSwipe = false;
 
   final List<String> _monthNames = [
     'Gennaio',
@@ -78,8 +90,6 @@ class _CalendarScreenState extends State<CalendarScreen>
     final now = DateTime.now();
     _selectedDay = DateTime(now.year, now.month, now.day);
 
-    // Controller per l'animazione di espansione/riduzione della card
-    // Controller per l'animazione di espansione/riduzione della card
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -87,94 +97,158 @@ class _CalendarScreenState extends State<CalendarScreen>
 
     _expandAnimation = CurvedAnimation(
       parent: _animController,
-      curve:
-          Curves
-              .easeInOutCubicEmphasized, // <-- Curva più morbida e progressiva
+      curve: Curves.easeInOutCubicEmphasized,
     );
 
-    // Mock dei pallini del mese
-    _workoutDots = {
-      DateTime(now.year, now.month, 9): 4,
-      DateTime(now.year, now.month, 10): 4,
-      DateTime(now.year, now.month, 13): 4,
-      DateTime(now.year, now.month, 14): 4,
-      DateTime(now.year, now.month, 16): 4,
-      DateTime(now.year, now.month, 20): 4,
-      DateTime(now.year, now.month, 21): 4,
-      DateTime(now.year, now.month, 23): 3,
-      DateTime(now.year, now.month, 24): 2,
-      DateTime(now.year, now.month, 28): 3,
-    };
+    _loadSessionsFromDb();
 
-    // Dati mock con gli esercizi come mostrati nello screenshot di riferimento
-    _workoutEvents = {
-      DateTime(now.year, now.month, now.day): [
-        const CalendarWorkoutSummary(
-          title: 'Full Body A',
-          exercises: [
-            ExerciseDetail(
-              name: 'Plank',
-              imageUrl:
-                  'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=300&q=80',
-              sets: 1,
-              avgReps: 0,
-              avgWeight: 0,
-            ),
-
-            ExerciseDetail(
-              name: 'Pull Down',
-              imageUrl:
-                  'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=300&q=80',
-              sets: 2,
-              avgReps: 30,
-              avgWeight: 85,
-            ),
-            ExerciseDetail(
-              name: 'Inclined Push up',
-              imageUrl:
-                  'https://images.unsplash.com/photo-1598971639058-fab3c3109a00?w=300&q=80',
-              sets: 3,
-              avgReps: 40,
-              avgWeight: 0,
-            ),
-            ExerciseDetail(
-              name: 'Medium Row Close Grip',
-              imageUrl:
-                  'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300&q=80',
-              sets: 3,
-              avgReps: 20,
-              avgWeight: 65,
-            ),
-            ExerciseDetail(
-              name: 'Biceps Curls One Arm',
-              imageUrl:
-                  'https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?w=300&q=80',
-              sets: 2,
-              avgReps: 30,
-              avgWeight: 30,
-            ),
-          ],
-        ),
-      ],
-    };
+    if (widget.isar != null) {
+      _sessionSubscription = widget.isar!.sessions.watchLazy().listen((_) {
+        _loadSessionsFromDb();
+      });
+      _setSubscription = widget.isar!.workoutSets.watchLazy().listen((_) {
+        _loadSessionsFromDb();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _sessionSubscription?.cancel();
+    _setSubscription?.cancel();
     _scrollController.dispose();
     _animController.dispose();
     super.dispose();
   }
 
+  DateTime _normalizeDate(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  Future<void> _loadSessionsFromDb() async {
+    if (widget.isar == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final sessions =
+          await widget.isar!.sessions.where().sortByDateDesc().findAll();
+
+      if (sessions.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _workoutDots = {};
+            _workoutEvents = {};
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      final sessionIds = sessions.map((s) => s.id).toSet();
+      final Map<DateTime, int> dotsMap = {};
+      final Map<DateTime, List<CalendarWorkoutSummary>> eventsMap = {};
+
+      final allSets =
+          await widget.isar!.workoutSets
+              .filter()
+              .session(
+                (q) => q.anyOf(
+                  sessionIds,
+                  (qSession, Id id) => qSession.idEqualTo(id),
+                ),
+              )
+              .findAll();
+
+      final Map<Id, List<WorkoutSet>> sessionSetsMap = {};
+      for (final set in allSets) {
+        await set.session.load();
+        final sId = set.session.value?.id;
+        if (sId != null) {
+          sessionSetsMap.putIfAbsent(sId, () => []).add(set);
+        }
+      }
+
+      for (final session in sessions) {
+        final dayKey = _normalizeDate(session.date);
+        await session.routine.load();
+        final routineTitle = session.routine.value?.name ?? 'Allenamento';
+
+        final sets = sessionSetsMap[session.id] ?? [];
+
+        final Map<String, List<WorkoutSet>> exerciseGroups = {};
+        for (final set in sets) {
+          await set.exercise.load();
+          final exName = set.exercise.value?.name ?? 'Esercizio';
+          exerciseGroups.putIfAbsent(exName, () => []).add(set);
+        }
+
+        final List<ExerciseDetail> exerciseDetails = [];
+        for (final entry in exerciseGroups.entries) {
+          final exerciseName = entry.key;
+          final exerciseSets = entry.value;
+
+          final totalSetsCount = exerciseSets.length;
+          final int totalReps = exerciseSets.fold<int>(
+            0,
+            (acc, s) => acc + s.reps,
+          );
+          final double totalWeight = exerciseSets.fold<double>(
+            0.0,
+            (acc, s) => acc + s.weight.toDouble(),
+          );
+
+          final int avgReps =
+              totalSetsCount > 0 ? (totalReps / totalSetsCount).round() : 0;
+          final double avgWeight =
+              totalSetsCount > 0 ? (totalWeight / totalSetsCount) : 0.0;
+
+          const exerciseImage =
+              'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=300&q=80';
+
+          exerciseDetails.add(
+            ExerciseDetail(
+              name: exerciseName,
+              imageUrl: exerciseImage,
+              sets: totalSetsCount,
+              avgReps: avgReps,
+              avgWeight: avgWeight,
+            ),
+          );
+        }
+
+        final summary = CalendarWorkoutSummary(
+          title: routineTitle,
+          exercises: exerciseDetails,
+        );
+
+        eventsMap.putIfAbsent(dayKey, () => []).add(summary);
+
+        final dotCount =
+            (dotsMap[dayKey] ?? 0) +
+            (exerciseDetails.isNotEmpty ? exerciseDetails.length : 1);
+        dotsMap[dayKey] = dotCount.clamp(1, 4);
+      }
+
+      if (mounted) {
+        setState(() {
+          _workoutDots = dotsMap;
+          _workoutEvents = eventsMap;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   List<CalendarWorkoutSummary> _getEventsForDay(DateTime day) {
-    final normalized = DateTime(day.year, day.month, day.day);
-    return _workoutEvents[normalized] ?? [];
+    return _workoutEvents[_normalizeDate(day)] ?? [];
   }
 
   int _getDotsCount(DateTime day) {
-    final normalized = DateTime(day.year, day.month, day.day);
-    return _workoutDots[normalized] ??
-        (_workoutEvents[normalized] != null ? 3 : 0);
+    return _workoutDots[_normalizeDate(day)] ?? 0;
   }
 
   void _toggleFormat([CalendarFormat? targetFormat]) {
@@ -229,6 +303,9 @@ class _CalendarScreenState extends State<CalendarScreen>
     final selectedEvents =
         _selectedDay != null ? _getEventsForDay(_selectedDay!) : [];
 
+    final currentExercises =
+        selectedEvents.expand((summary) => summary.exercises).toList();
+
     final double bottomInset = MediaQuery.of(context).padding.bottom;
     final double cutOffBottom = bottomInset - 20;
 
@@ -236,357 +313,395 @@ class _CalendarScreenState extends State<CalendarScreen>
       backgroundColor: Colors.black,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            // --- 1. CALENDARIO IN ALTO ---
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10.0, bottom: 12.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: const Icon(
-                            Icons.chevron_left_rounded,
-                            color: Color(0xFFFF9700),
-                            size: 38,
-                          ),
-                          onPressed: _goToPrevious,
-                        ),
-                        Column(
-                          children: [
-                            Text(
-                              '${_focusedDay.year}',
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _monthNames[_focusedDay.month - 1],
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: Color(0xFFFF9700),
-                            size: 38,
-                          ),
-                          onPressed: _goToNext,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Header giorni della settimana pillola
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12.0),
-                    margin: const EdgeInsets.only(bottom: 12.0),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF191919),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        Text(
-                          'Lun',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Mar',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Mer',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Gio',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Ven',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Sab',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Dom',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Griglia Giorni
-                  TableCalendar<CalendarWorkoutSummary>(
-                    firstDay: DateTime.utc(2020, 1, 1),
-                    lastDay: DateTime.utc(2030, 12, 31),
-                    focusedDay: _focusedDay,
-                    calendarFormat: _calendarFormat,
-                    formatAnimationDuration: const Duration(
-                      milliseconds: 850,
-                    ), // <-- Stessa durata della card
-                    formatAnimationCurve: Curves.easeInOutCubicEmphasized,
-                    pageAnimationDuration: const Duration(milliseconds: 260),
-                    pageAnimationCurve: Curves.easeInOutCubicEmphasized,
-                    pageJumpingEnabled: false,
-                    startingDayOfWeek: StartingDayOfWeek.monday,
-                    headerVisible: false,
-                    daysOfWeekVisible: false,
-                    rowHeight: 60.0,
-                    daysOfWeekHeight: 0,
-                    selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                    onDaySelected: (selectedDay, focusedDay) {
-                      setState(() {
-                        _selectedDay = selectedDay;
-                        _focusedDay = focusedDay;
-                      });
-                    },
-                    onPageChanged: (focusedDay) {
-                      setState(() {
-                        _focusedDay = focusedDay;
-                      });
-                    },
-                    calendarBuilders: CalendarBuilders(
-                      defaultBuilder: (context, day, focusedDay) {
-                        return _buildSquareCell(
-                          day: day,
-                          textColor: Colors.white,
-                          borderColor: const Color(0xFF242424),
-                          backgroundColor: Colors.transparent,
-                          dotsCount: _getDotsCount(day),
-                        );
-                      },
-                      selectedBuilder: (context, day, focusedDay) {
-                        final bool isCurrentDay = isSameDay(
-                          day,
-                          DateTime.now(),
-                        );
-                        return _buildSquareCell(
-                          day: day,
-                          textColor: Colors.white,
-                          borderColor: const Color(0xFFFF9700),
-                          borderWidth: 1.8,
-                          backgroundColor:
-                              isCurrentDay
-                                  ? const Color(0xFF2C2C2E)
-                                  : Colors.transparent,
-                          dotsCount: _getDotsCount(day),
-                        );
-                      },
-                      todayBuilder: (context, day, focusedDay) {
-                        return _buildSquareCell(
-                          day: day,
-                          textColor: Colors.white,
-                          borderColor: const Color(
-                            0xFFFF9700,
-                          ).withValues(alpha: 0.5),
-                          borderWidth: 1.4,
-                          backgroundColor: const Color(
-                            0xFF2C2C2E,
-                          ), // Sfondo grigio distintivo
-                          dotsCount: _getDotsCount(day),
-                        );
-                      },
-                      outsideBuilder: (context, day, focusedDay) {
-                        return Center(
-                          child: Text(
-                            '${day.day}',
-                            style: const TextStyle(
-                              color: Color(0xFF424242),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // --- 2. CARD INFERIORE ADATTIVA CON ANIMAZIONE ---
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16.0,
-                  right: 16.0,
-                  bottom: cutOffBottom,
-                ),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF232325),
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(28),
-                      bottom: Radius.circular(0),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black54,
-                        blurRadius: 10,
-                        offset: Offset(0, -2),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(28),
-                      bottom: Radius.circular(0),
-                    ),
-                    child: Column(
-                      children: [
-                        // Maniglietta Drag
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onVerticalDragUpdate: (details) {
-                            if (details.primaryDelta != null) {
-                              if (details.primaryDelta! < -4 &&
-                                  _calendarFormat == CalendarFormat.month) {
-                                _toggleFormat(CalendarFormat.week);
-                              } else if (details.primaryDelta! > 4 &&
-                                  _calendarFormat == CalendarFormat.week) {
-                                _toggleFormat(CalendarFormat.month);
-                              }
-                            }
-                          },
-                          onTap: () => _toggleFormat(),
-                          child: Container(
-                            width: double.infinity,
+        child:
+            _isLoading
+                ? const Center(
+                  child: CircularProgressIndicator(color: Color(0xFFFF9700)),
+                )
+                : Column(
+                  children: [
+                    // --- 1. CALENDARIO IN ALTO ---
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
                             padding: const EdgeInsets.only(
-                              top: 12.0,
-                              bottom: 8.0,
+                              top: 10.0,
+                              bottom: 12.0,
                             ),
-                            child: Center(
-                              child: Container(
-                                width: 44,
-                                height: 4.5,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFF9700),
-                                  borderRadius: BorderRadius.circular(10),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  icon: const Icon(
+                                    Icons.chevron_left_rounded,
+                                    color: Color(0xFFFF9700),
+                                    size: 38,
+                                  ),
+                                  onPressed: _goToPrevious,
                                 ),
+                                Column(
+                                  children: [
+                                    Text(
+                                      '${_focusedDay.year}',
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _monthNames[_focusedDay.month - 1],
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.w500,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  icon: const Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Color(0xFFFF9700),
+                                    size: 38,
+                                  ),
+                                  onPressed: _goToNext,
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Header giorni della settimana pillola
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12.0),
+                            margin: const EdgeInsets.only(bottom: 12.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF191919),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                Text(
+                                  'Lun',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'Mar',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'Mer',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'Gio',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'Ven',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'Sab',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'Dom',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Griglia Giorni con controllo lock a singolo scatto
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onHorizontalDragStart: (_) {
+                              _horizontalDragAccumulator = 0.0;
+                              _hasTriggeredSwipe = false;
+                            },
+                            onHorizontalDragUpdate: (details) {
+                              if (_hasTriggeredSwipe) return;
+
+                              _horizontalDragAccumulator +=
+                                  details.primaryDelta ?? 0.0;
+                              const double swipeThreshold = 28.0;
+
+                              if (_horizontalDragAccumulator <
+                                  -swipeThreshold) {
+                                _hasTriggeredSwipe = true;
+                                _goToNext();
+                              } else if (_horizontalDragAccumulator >
+                                  swipeThreshold) {
+                                _hasTriggeredSwipe = true;
+                                _goToPrevious();
+                              }
+                            },
+                            onHorizontalDragEnd: (_) {
+                              _horizontalDragAccumulator = 0.0;
+                              _hasTriggeredSwipe = false;
+                            },
+                            onHorizontalDragCancel: () {
+                              _horizontalDragAccumulator = 0.0;
+                              _hasTriggeredSwipe = false;
+                            },
+                            child: TableCalendar<CalendarWorkoutSummary>(
+                              firstDay: DateTime.utc(2020, 1, 1),
+                              lastDay: DateTime.utc(2030, 12, 31),
+                              focusedDay: _focusedDay,
+                              calendarFormat: _calendarFormat,
+                              availableGestures: AvailableGestures.none,
+                              formatAnimationDuration: const Duration(
+                                milliseconds: 350,
+                              ),
+                              formatAnimationCurve: Curves.easeOutQuad,
+                              pageAnimationDuration: const Duration(
+                                milliseconds: 260,
+                              ),
+                              pageAnimationCurve: Curves.easeOutCubic,
+                              pageJumpingEnabled: false,
+                              startingDayOfWeek: StartingDayOfWeek.monday,
+                              headerVisible: false,
+                              daysOfWeekVisible: false,
+                              rowHeight: 60.0,
+                              daysOfWeekHeight: 0,
+                              selectedDayPredicate:
+                                  (day) => isSameDay(_selectedDay, day),
+                              onDaySelected: (selectedDay, focusedDay) {
+                                setState(() {
+                                  _selectedDay = selectedDay;
+                                  _focusedDay = focusedDay;
+                                });
+                              },
+                              onPageChanged: (focusedDay) {
+                                setState(() {
+                                  _focusedDay = focusedDay;
+                                });
+                              },
+                              calendarBuilders: CalendarBuilders(
+                                defaultBuilder: (context, day, focusedDay) {
+                                  return _buildSquareCell(
+                                    day: day,
+                                    textColor: Colors.white,
+                                    borderColor: const Color(0xFF242424),
+                                    backgroundColor: Colors.transparent,
+                                    dotsCount: _getDotsCount(day),
+                                  );
+                                },
+                                selectedBuilder: (context, day, focusedDay) {
+                                  final bool isCurrentDay = isSameDay(
+                                    day,
+                                    DateTime.now(),
+                                  );
+                                  return _buildSquareCell(
+                                    day: day,
+                                    textColor: Colors.white,
+                                    borderColor: const Color(0xFFFF9700),
+                                    borderWidth: 1.8,
+                                    backgroundColor:
+                                        isCurrentDay
+                                            ? const Color(0xFF2C2C2E)
+                                            : Colors.transparent,
+                                    dotsCount: _getDotsCount(day),
+                                  );
+                                },
+                                todayBuilder: (context, day, focusedDay) {
+                                  return _buildSquareCell(
+                                    day: day,
+                                    textColor: Colors.white,
+                                    borderColor: const Color(
+                                      0xFFFF9700,
+                                    ).withValues(alpha: 0.5),
+                                    borderWidth: 1.4,
+                                    backgroundColor: const Color(0xFF2C2C2E),
+                                    dotsCount: _getDotsCount(day),
+                                  );
+                                },
+                                outsideBuilder: (context, day, focusedDay) {
+                                  return Center(
+                                    child: Text(
+                                      '${day.day}',
+                                      style: const TextStyle(
+                                        color: Color(0xFF424242),
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
                           ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // --- 2. CARD INFERIORE ADATTIVA ---
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          left: 16.0,
+                          right: 16.0,
+                          bottom: cutOffBottom,
                         ),
-
-                        // Corpo della Card: Colonna fissa Sinistra + Lista Esercizi Animata Destra
-                        Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // 1. Colonna laterale sinistra con Data e Icone
-                              _buildLeftSidebar(),
-
-                              // Linea verticale divisoria
-                              Container(
-                                width: 1.5,
-                                margin: const EdgeInsets.only(
-                                  top: 4.0,
-                                  bottom: 20.0,
-                                ),
-                                color: Colors.white24,
-                              ),
-
-                              // 2. Lista Esercizi con transizione animata
-                              Expanded(
-                                child:
-                                    selectedEvents.isEmpty
-                                        ? _buildEmptyState()
-                                        : ListView.builder(
-                                          controller: _scrollController,
-                                          physics:
-                                              const BouncingScrollPhysics(),
-                                          padding: const EdgeInsets.fromLTRB(
-                                            16.0,
-                                            4.0,
-                                            16.0,
-                                            80.0,
-                                          ),
-                                          itemCount:
-                                              selectedEvents
-                                                  .first
-                                                  .exercises
-                                                  .length,
-                                          itemBuilder: (context, index) {
-                                            final exercise =
-                                                selectedEvents
-                                                    .first
-                                                    .exercises[index];
-                                            return _buildAnimatedExerciseItem(
-                                              exercise,
-                                            );
-                                          },
-                                        ),
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF232325),
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(28),
+                              bottom: Radius.circular(0),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black54,
+                                blurRadius: 10,
+                                offset: Offset(0, -2),
                               ),
                             ],
                           ),
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(28),
+                              bottom: Radius.circular(0),
+                            ),
+                            child: Column(
+                              children: [
+                                // Maniglietta Drag
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onVerticalDragUpdate: (details) {
+                                    if (details.primaryDelta != null) {
+                                      if (details.primaryDelta! < -4 &&
+                                          _calendarFormat ==
+                                              CalendarFormat.month) {
+                                        _toggleFormat(CalendarFormat.week);
+                                      } else if (details.primaryDelta! > 4 &&
+                                          _calendarFormat ==
+                                              CalendarFormat.week) {
+                                        _toggleFormat(CalendarFormat.month);
+                                      }
+                                    }
+                                  },
+                                  onTap: () => _toggleFormat(),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.only(
+                                      top: 12.0,
+                                      bottom: 8.0,
+                                    ),
+                                    child: Center(
+                                      child: Container(
+                                        width: 44,
+                                        height: 4.5,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFF9700),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                // Corpo Card: Colonna fissa Sinistra + Lista Esercizi
+                                Expanded(
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _buildLeftSidebar(),
+                                      Container(
+                                        width: 1.5,
+                                        margin: const EdgeInsets.only(
+                                          top: 4.0,
+                                          bottom: 20.0,
+                                        ),
+                                        color: Colors.white24,
+                                      ),
+                                      Expanded(
+                                        child:
+                                            currentExercises.isEmpty
+                                                ? _buildEmptyState()
+                                                : ListView.builder(
+                                                  controller: _scrollController,
+                                                  physics:
+                                                      const BouncingScrollPhysics(),
+                                                  padding:
+                                                      const EdgeInsets.fromLTRB(
+                                                        16.0,
+                                                        4.0,
+                                                        16.0,
+                                                        80.0,
+                                                      ),
+                                                  itemCount:
+                                                      currentExercises.length,
+                                                  itemBuilder: (
+                                                    context,
+                                                    index,
+                                                  ) {
+                                                    return _buildAnimatedExerciseItem(
+                                                      currentExercises[index],
+                                                    );
+                                                  },
+                                                ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 
-  // 1. Colonna di sinistra perfettamente centrata
   Widget _buildLeftSidebar() {
     final currentDay = _selectedDay ?? DateTime.now();
     final dayNum = '${currentDay.day}';
@@ -596,7 +711,7 @@ class _CalendarScreenState extends State<CalendarScreen>
       width: 76,
       padding: const EdgeInsets.only(top: 8.0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center, // Centratura orizzontale
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
             dayNum,
@@ -618,8 +733,6 @@ class _CalendarScreenState extends State<CalendarScreen>
             ),
           ),
           const SizedBox(height: 24),
-
-          // Icone arancioni perfettamente centrate
           const Center(
             child: Icon(
               Icons.build_rounded,
@@ -640,16 +753,13 @@ class _CalendarScreenState extends State<CalendarScreen>
     );
   }
 
-  // 2. Elemento della lista con linea orizzontale allungata
   Widget _buildAnimatedExerciseItem(ExerciseDetail exercise) {
     return AnimatedBuilder(
       animation: _expandAnimation,
       builder: (context, child) {
-        final t =
-            _expandAnimation
-                .value; // 0.0 = mensile/compatto, 1.0 = settimanale/espanso
+        final t = _expandAnimation.value;
 
-        final double imageSize = 44.0 + (32.0 * t); // Da 44px a 76px
+        final double imageSize = 44.0 + (32.0 * t);
         final double imageRadius = 14.0 + (6.0 * t);
         final double itemMarginBottom = 16.0 + (4.0 * t);
 
@@ -658,7 +768,6 @@ class _CalendarScreenState extends State<CalendarScreen>
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Immagine dell'esercizio con angoli arrotondati
               ClipRRect(
                 borderRadius: BorderRadius.circular(imageRadius),
                 child: Container(
@@ -677,8 +786,6 @@ class _CalendarScreenState extends State<CalendarScreen>
                 ),
               ),
               const SizedBox(width: 14),
-
-              // Testi, linea arancione e dettagli
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -695,21 +802,16 @@ class _CalendarScreenState extends State<CalendarScreen>
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-
-                    // Quando t < 0.15: Linea orizzontale lunga che riempie lo spazio a destra
                     if (t < 0.15)
                       Container(
                         height: 2.0,
-                        width:
-                            double
-                                .infinity, // Riempie tutta la larghezza disponibile a destra
+                        width: double.infinity,
                         margin: const EdgeInsets.only(top: 4.0, right: 75.0),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFF9700),
                           borderRadius: BorderRadius.circular(2),
                         ),
                       )
-                    // Quando espanso: Linea verticale a sinistra dei dettagli
                     else
                       IntrinsicHeight(
                         child: Row(
@@ -749,7 +851,7 @@ class _CalendarScreenState extends State<CalendarScreen>
                                     ),
                                   ),
                                   Text(
-                                    'Average weight: ${exercise.avgWeight.toInt()}',
+                                    'Average weight: ${exercise.avgWeight.toStringAsFixed(1)}',
                                     style: const TextStyle(
                                       color: Colors.white60,
                                       fontSize: 12,

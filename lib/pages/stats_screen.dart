@@ -34,8 +34,11 @@ class _StatsScreenState extends State<StatsScreen>
   late final Animation<double> _oneRmCurveAnimation;
 
   TimeFilter _selectedFilter = TimeFilter.week;
-  String _selectedExercise = 'Panca Piana Bilanciere';
+
+  // Variabili dinamiche per gli esercizi dal DB
   bool _isLoading = true;
+  List<CompoundExerciseInfo> _compoundList = [];
+  String? _selectedExercise;
 
   // Dati Aggregati Reali
   double _totalTonnage = 0.0;
@@ -45,42 +48,7 @@ class _StatsScreenState extends State<StatsScreen>
 
   List<double> _volumeChartData = [];
   List<String> _volumeChartLabels = [];
-
-  List<Map<String, dynamic>> _oneRmHistory = [];
   List<Map<String, dynamic>> _muscleData = [];
-
-  final List<CompoundExerciseInfo> _compoundList = const [
-    CompoundExerciseInfo(
-      name: 'Panca Piana Bilanciere',
-      muscle: 'Petto • Push',
-      icon: Icons.fitness_center_rounded,
-      pr: 118.0,
-    ),
-    CompoundExerciseInfo(
-      name: 'Squat Bilanciere',
-      muscle: 'Gambe • Quad Focus',
-      icon: Icons.accessibility_new_rounded,
-      pr: 155.0,
-    ),
-    CompoundExerciseInfo(
-      name: 'Stacco da Terra',
-      muscle: 'Dorso / Femorali',
-      icon: Icons.airline_seat_recline_extra_rounded,
-      pr: 180.0,
-    ),
-    CompoundExerciseInfo(
-      name: 'Trazioni alla Sbarra',
-      muscle: 'Dorso • Lats',
-      icon: Icons.sports_gymnastics_rounded,
-      pr: 35.0,
-    ),
-    CompoundExerciseInfo(
-      name: 'Military Press',
-      muscle: 'Deltoidi • Spalle',
-      icon: Icons.arrow_upward_rounded,
-      pr: 72.5,
-    ),
-  ];
 
   @override
   void initState() {
@@ -108,7 +76,7 @@ class _StatsScreenState extends State<StatsScreen>
     _generalAnimController.forward();
     _oneRmAnimController.forward();
 
-    _fetchDatabaseStats();
+    _loadExercisesAndStats();
   }
 
   void _onScroll() {
@@ -135,18 +103,72 @@ class _StatsScreenState extends State<StatsScreen>
     setState(() {
       _selectedFilter = filter;
     });
-    _fetchDatabaseStats();
+    _loadExercisesAndStats();
     _generalAnimController.forward(from: 0.0);
     _oneRmAnimController.forward(from: 0.0);
   }
 
-  // --- QUERY ED ELABORAZIONE DATI ISAR ---
-  Future<void> _fetchDatabaseStats() async {
+  // --- CARICAMENTO ESERCIZI DAL DB E CALCOLO STATS ---
+  Future<void> _loadExercisesAndStats() async {
     if (widget.isar == null) {
       setState(() => _isLoading = false);
       return;
     }
 
+    // 1. Estraiamo dal database SOLO gli esercizi multiarticolari (isCompound == true)
+    final dbExercises =
+        await widget.isar!.exercises.filter().isCompoundEqualTo(true).findAll();
+
+    List<CompoundExerciseInfo> loadedCompounds = [];
+
+    if (dbExercises.isNotEmpty) {
+      for (var ex in dbExercises) {
+        loadedCompounds.add(
+          CompoundExerciseInfo(
+            name: ex.name,
+            muscle: '${ex.muscleGroup} • ${ex.equipment ?? "Multiarticolare"}',
+            icon: Icons.fitness_center_rounded,
+            pr: 0.0,
+          ),
+        );
+      }
+    } else {
+      // Fallback nel caso in cui non ci siano ancora multiarticolari nel DB
+      loadedCompounds = const [
+        CompoundExerciseInfo(
+          name: 'Panca Piana Bilanciere',
+          muscle: 'Petto • Bilanciere',
+          icon: Icons.fitness_center_rounded,
+          pr: 100.0,
+        ),
+        CompoundExerciseInfo(
+          name: 'Squat Bilanciere',
+          muscle: 'Gambe • Bilanciere',
+          icon: Icons.accessibility_new_rounded,
+          pr: 140.0,
+        ),
+        CompoundExerciseInfo(
+          name: 'Stacco da Terra',
+          muscle: 'Dorso / Femorali • Bilanciere',
+          icon: Icons.airline_seat_recline_extra_rounded,
+          pr: 160.0,
+        ),
+      ];
+    }
+
+    if (_selectedExercise == null ||
+        !loadedCompounds.any((e) => e.name == _selectedExercise)) {
+      _selectedExercise = loadedCompounds.first.name;
+    }
+
+    setState(() {
+      _compoundList = loadedCompounds;
+    });
+
+    await _fetchDatabaseStats();
+  }
+
+  Future<void> _fetchDatabaseStats() async {
     final now = DateTime.now();
     DateTime startDate;
 
@@ -166,7 +188,6 @@ class _StatsScreenState extends State<StatsScreen>
         break;
     }
 
-    // 1. Estrai le sessioni nel periodo
     final sessions =
         await widget.isar!.sessions
             .filter()
@@ -176,12 +197,10 @@ class _StatsScreenState extends State<StatsScreen>
             .findAll();
 
     final sessionIds = sessions.map((s) => s.id).toSet();
-
     final Map<Id, DateTime> sessionDates = {
       for (final s in sessions) s.id: s.date,
     };
 
-    // 2. Calcolo durata totale in minuti
     int totalMinutes = 0;
     for (final s in sessions) {
       if (s.endTime != null) {
@@ -189,17 +208,14 @@ class _StatsScreenState extends State<StatsScreen>
       }
     }
 
-    // 3. Query diretta su WorkoutSet tramite link "session"
     final allSets =
         await widget.isar!.workoutSets
             .filter()
             .session(
-              (q) => q
-                  .dateGreaterThan(
-                    startDate.subtract(const Duration(seconds: 1)),
-                  )
-                  .and()
-                  .dateLessThan(now.add(const Duration(days: 1))),
+              (q) => q.anyOf(
+                sessionIds,
+                (qSession, Id id) => qSession.idEqualTo(id),
+              ),
             )
             .findAll();
 
@@ -208,24 +224,24 @@ class _StatsScreenState extends State<StatsScreen>
     int rpeCount = 0;
 
     final Map<int, double> volumeBucket = {};
-    final Map<String, List<Map<String, dynamic>>> muscleExercises = {
-      'Petto (Push)': [],
-      'Dorso (Pull)': [],
-      'Quadricipiti (Legs)': [],
-      'Femorali / Glutei': [],
-      'Deltoidi': [],
-      'Braccia (Bic/Tric)': [],
-    };
     final Map<String, int> muscleSets = {
-      'Petto (Push)': 0,
-      'Dorso (Pull)': 0,
-      'Quadricipiti (Legs)': 0,
-      'Femorali / Glutei': 0,
-      'Deltoidi': 0,
-      'Braccia (Bic/Tric)': 0,
+      'Petto': 0,
+      'Dorso': 0,
+      'Gambe': 0,
+      'Spalle': 0,
+      'Bicipiti': 0,
+      'Tricipiti': 0,
+      'Addome': 0,
     };
-
-    final Map<Id, double> sessionMax1RmMap = {};
+    final Map<String, List<Map<String, dynamic>>> muscleExercises = {
+      'Petto': [],
+      'Dorso': [],
+      'Gambe': [],
+      'Spalle': [],
+      'Bicipiti': [],
+      'Tricipiti': [],
+      'Addome': [],
+    };
 
     for (final s in allSets) {
       final double weight = s.weight;
@@ -236,8 +252,8 @@ class _StatsScreenState extends State<StatsScreen>
       await s.exercise.load();
       await s.session.load();
 
-      final exName = s.exercise.value?.name ?? '';
-      final muscleGroup = s.exercise.value?.muscleGroup ?? '';
+      final muscleGroup = s.exercise.value?.muscleGroup ?? 'Altro';
+      final exName = s.exercise.value?.name ?? 'Esercizio';
       final sessionId = s.session.value?.id;
       final sDate = sessionId != null ? sessionDates[sessionId] : null;
 
@@ -250,7 +266,6 @@ class _StatsScreenState extends State<StatsScreen>
           rpeCount++;
         }
 
-        // Calcolo volume bucket
         if (sDate != null) {
           int key = 0;
           if (_selectedFilter == TimeFilter.week) {
@@ -263,65 +278,33 @@ class _StatsScreenState extends State<StatsScreen>
           volumeBucket[key] = (volumeBucket[key] ?? 0.0) + setTonnage;
         }
 
-        // Stima 1RM Brzycki per esercizio attivo
-        if (exName.toLowerCase() == _selectedExercise.toLowerCase() &&
-            reps > 0 &&
-            sessionId != null) {
-          final double calculated1Rm = weight * (1.0 + (0.0333 * reps));
-          final double currentMax = sessionMax1RmMap[sessionId] ?? 0.0;
-          if (calculated1Rm > currentMax) {
-            sessionMax1RmMap[sessionId] = calculated1Rm;
-          }
-        }
-
-        // Hard Sets (RPE >= 8)
         if (rpe != null && rpe >= 8) {
-          final normalizedGroup = _normalizeMuscleGroup(muscleGroup, exName);
-          if (muscleSets.containsKey(normalizedGroup)) {
-            muscleSets[normalizedGroup] =
-                (muscleSets[normalizedGroup] ?? 0) + 1;
+          if (!muscleSets.containsKey(muscleGroup)) {
+            muscleSets[muscleGroup] = 0;
+            muscleExercises[muscleGroup] = [];
+          }
+          muscleSets[muscleGroup] = muscleSets[muscleGroup]! + 1;
 
-            final existingList = muscleExercises[normalizedGroup]!;
-            final existingIndex = existingList.indexWhere(
-              (e) => e['name'] == exName,
-            );
+          final existingList = muscleExercises[muscleGroup]!;
+          final existingIndex = existingList.indexWhere(
+            (e) => e['name'] == exName,
+          );
 
-            if (existingIndex != -1) {
-              existingList[existingIndex]['sets'] =
-                  (existingList[existingIndex]['sets'] as int) + 1;
-            } else {
-              existingList.add({
-                'name': exName,
-                'sets': 1,
-                'reps': '$reps',
-                'avgWeight': weight,
-              });
-            }
+          if (existingIndex != -1) {
+            existingList[existingIndex]['sets'] =
+                (existingList[existingIndex]['sets'] as int) + 1;
+          } else {
+            existingList.add({
+              'name': exName,
+              'sets': 1,
+              'reps': '$reps',
+              'avgWeight': weight,
+            });
           }
         }
       }
     }
 
-    // 4. Costruzione punti 1RM ordinati
-    final List<Map<String, dynamic>> calculatedOneRmList = [];
-    final sortedSessionIds =
-        sessionMax1RmMap.keys.toList()..sort(
-          (a, b) => (sessionDates[a] ?? DateTime(2000)).compareTo(
-            sessionDates[b] ?? DateTime(2000),
-          ),
-        );
-
-    for (final sId in sortedSessionIds) {
-      final date = sessionDates[sId];
-      if (date != null) {
-        calculatedOneRmList.add({
-          'date': _formatShortDate(date),
-          'val': (sessionMax1RmMap[sId]! * 10).round() / 10,
-        });
-      }
-    }
-
-    // 5. Configurazione assi grafico Volume
     List<double> computedVolumeData = [];
     List<String> computedVolumeLabels = [];
 
@@ -349,55 +332,21 @@ class _StatsScreenState extends State<StatsScreen>
       computedVolumeData = List.generate(12, (i) => volumeBucket[i] ?? 0.0);
     }
 
-    // 6. Configurazione target Hard Sets
     int multiplier = 1;
     if (_selectedFilter == TimeFilter.month) multiplier = 4;
     if (_selectedFilter == TimeFilter.year) multiplier = 48;
 
-    final List<Map<String, dynamic>> computedMuscleData = [
-      {
-        'muscle': 'Petto (Push)',
-        'sets': muscleSets['Petto (Push)'] ?? 0,
-        'target': 16 * multiplier,
-        'color': const Color(0xFFFF9700),
-        'exercises': muscleExercises['Petto (Push)'] ?? [],
-      },
-      {
-        'muscle': 'Dorso (Pull)',
-        'sets': muscleSets['Dorso (Pull)'] ?? 0,
-        'target': 16 * multiplier,
-        'color': const Color(0xFFFFB74D),
-        'exercises': muscleExercises['Dorso (Pull)'] ?? [],
-      },
-      {
-        'muscle': 'Quadricipiti (Legs)',
-        'sets': muscleSets['Quadricipiti (Legs)'] ?? 0,
-        'target': 14 * multiplier,
-        'color': const Color(0xFFE65100),
-        'exercises': muscleExercises['Quadricipiti (Legs)'] ?? [],
-      },
-      {
-        'muscle': 'Femorali / Glutei',
-        'sets': muscleSets['Femorali / Glutei'] ?? 0,
-        'target': 12 * multiplier,
-        'color': const Color(0xFFFF9700),
-        'exercises': muscleExercises['Femorali / Glutei'] ?? [],
-      },
-      {
-        'muscle': 'Deltoidi',
-        'sets': muscleSets['Deltoidi'] ?? 0,
-        'target': 12 * multiplier,
-        'color': Colors.white70,
-        'exercises': muscleExercises['Deltoidi'] ?? [],
-      },
-      {
-        'muscle': 'Braccia (Bic/Tric)',
-        'sets': muscleSets['Braccia (Bic/Tric)'] ?? 0,
-        'target': 10 * multiplier,
-        'color': const Color(0xFFFFB74D),
-        'exercises': muscleExercises['Braccia (Bic/Tric)'] ?? [],
-      },
-    ];
+    final List<Map<String, dynamic>> computedMuscleData =
+        muscleSets.entries.map((entry) {
+          final group = entry.key;
+          return {
+            'muscle': group,
+            'sets': entry.value,
+            'target': 16 * multiplier,
+            'color': const Color(0xFFFF9700),
+            'exercises': muscleExercises[group] ?? [],
+          };
+        }).toList();
 
     if (mounted) {
       setState(() {
@@ -405,83 +354,11 @@ class _StatsScreenState extends State<StatsScreen>
         _completedSessionsCount = sessions.length;
         _avgRpe = rpeCount > 0 ? (rpeSum / rpeCount) : 0.0;
         _density = totalMinutes > 0 ? (tonnageAcc / totalMinutes) : 0.0;
-
         _volumeChartData = computedVolumeData;
         _volumeChartLabels = computedVolumeLabels;
-
-        _oneRmHistory =
-            calculatedOneRmList.isEmpty
-                ? [
-                  {'date': 'Oggi', 'val': 0.0},
-                  {'date': 'Max', 'val': 0.0},
-                ]
-                : calculatedOneRmList;
-
         _muscleData = computedMuscleData;
         _isLoading = false;
       });
-    }
-  }
-
-  String _normalizeMuscleGroup(String muscleGroup, String exerciseName) {
-    final m = muscleGroup.toLowerCase();
-    final e = exerciseName.toLowerCase();
-    if (m.contains('petto') ||
-        e.contains('panca') ||
-        e.contains('dip') ||
-        e.contains('croci')) {
-      return 'Petto (Push)';
-    }
-    if (m.contains('dorso') ||
-        e.contains('trazion') ||
-        e.contains('remator') ||
-        e.contains('pulley')) {
-      return 'Dorso (Pull)';
-    }
-    if (m.contains('quad') || e.contains('squat') || e.contains('press')) {
-      return 'Quadricipiti (Legs)';
-    }
-    if (m.contains('femor') ||
-        m.contains('glute') ||
-        e.contains('stacco') ||
-        e.contains('thrust') ||
-        e.contains('curl')) {
-      return 'Femorali / Glutei';
-    }
-    if (m.contains('spall') ||
-        m.contains('delt') ||
-        e.contains('military') ||
-        e.contains('alzate')) {
-      return 'Deltoidi';
-    }
-    if (m.contains('bracc') ||
-        m.contains('bic') ||
-        m.contains('tric') ||
-        e.contains('french') ||
-        e.contains('pushdown')) {
-      return 'Braccia (Bic/Tric)';
-    }
-    return 'Petto (Push)';
-  }
-
-  String _formatShortDate(DateTime d) {
-    switch (d.weekday) {
-      case DateTime.monday:
-        return 'Lun';
-      case DateTime.tuesday:
-        return 'Mar';
-      case DateTime.wednesday:
-        return 'Mer';
-      case DateTime.thursday:
-        return 'Gio';
-      case DateTime.friday:
-        return 'Ven';
-      case DateTime.saturday:
-        return 'Sab';
-      case DateTime.sunday:
-        return 'Dom';
-      default:
-        return '${d.day}';
     }
   }
 
@@ -611,7 +488,7 @@ class _StatsScreenState extends State<StatsScreen>
     );
   }
 
-  // --- SELETTORE TEMPORALE CON TRANSIZIONE FLUIDA E FONT GLOBALE ---
+  // --- SELETTORE TEMPORALE FLUIDO ---
   Widget _buildTimeFilterSelector() {
     Alignment pillAlignment = Alignment.centerLeft;
     if (_selectedFilter == TimeFilter.month) {
@@ -699,7 +576,10 @@ class _StatsScreenState extends State<StatsScreen>
       1.0,
     );
     final double bottomInset = MediaQuery.of(context).padding.bottom;
-    final double cutOffBottom = bottomInset - 20.0;
+    final double cutOffBottom = (bottomInset - 20.0).clamp(
+      0.0,
+      double.infinity,
+    );
 
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 0, 0, 0),
@@ -708,9 +588,6 @@ class _StatsScreenState extends State<StatsScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ==========================================
-            // 1. HEADER E FILTRI FISSI IN ALTO
-            // ==========================================
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Column(
@@ -737,10 +614,6 @@ class _StatsScreenState extends State<StatsScreen>
                 ],
               ),
             ),
-
-            // ==========================================
-            // 2. AREA SCORREVOLE (SENZA OMBRA IN BASSO)
-            // ==========================================
             Expanded(
               child:
                   _isLoading
@@ -799,22 +672,25 @@ class _StatsScreenState extends State<StatsScreen>
                                 ),
                                 const SizedBox(height: 24),
 
-                                OneRmProgressionCard(
-                                  isar: widget.isar,
-                                  compoundList: _compoundList,
-                                  selectedExercise: _selectedExercise,
-                                  filter: _selectedFilter,
-                                  animation: _oneRmCurveAnimation,
-                                  onExerciseChanged: (newExercise) {
-                                    setState(
-                                      () => _selectedExercise = newExercise,
-                                    );
-                                    _fetchDatabaseStats();
-                                    _oneRmAnimController.forward(from: 0.0);
-                                  },
-                                ),
+                                // Passiamo gli esercizi reali presi da Isar alla card 1RM
+                                if (_compoundList.isNotEmpty &&
+                                    _selectedExercise != null)
+                                  OneRmProgressionCard(
+                                    isar: widget.isar,
+                                    compoundList: _compoundList,
+                                    selectedExercise: _selectedExercise!,
+                                    filter: _selectedFilter,
+                                    animation: _oneRmCurveAnimation,
+                                    onExerciseChanged: (newExercise) {
+                                      setState(
+                                        () => _selectedExercise = newExercise,
+                                      );
+                                      _oneRmAnimController.forward(from: 0.0);
+                                    },
+                                  ),
                                 const SizedBox(height: 24),
 
+                                // Passiamo l'istanza Isar anche alla card di sovraccarico generale
                                 ExerciseProgressCard(
                                   isar: widget.isar,
                                   filter: _selectedFilter,

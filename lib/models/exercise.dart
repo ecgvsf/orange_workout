@@ -22,6 +22,9 @@ class Exercise {
 
   String? equipment;
 
+  /// Percorso assoluto locale dell'immagine salvata su dispositivo
+  String? imagePath;
+
   // Getter tipizzati comodi
   @ignore
   MuscleGroup get targetMuscle => MuscleGroup.fromString(muscleGroup);

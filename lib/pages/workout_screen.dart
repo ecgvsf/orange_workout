@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:isar/isar.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/exercise.dart';
 
 class ExercisesScreen extends StatefulWidget {
@@ -25,14 +28,19 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
   String _selectedGroup = 'Tutti';
   String _searchQuery = '';
 
-  // Categorie muscolari standard per la categorizzazione/creazione
+  // Catalogo unificato dei gruppi muscolari
   final List<String> _muscleCategories = const [
     'Petto',
     'Dorso',
-    'Gambe',
+    'Alta Schiena',
+    'Lombari',
     'Spalle',
     'Bicipiti',
     'Tricipiti',
+    'Quadricipiti',
+    'Femorali',
+    'Glutei',
+    'Polpacci',
     'Addome',
   ];
 
@@ -42,7 +50,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     _fetchExercisesFromDb();
     _scrollController.addListener(_onScroll);
 
-    // Ascolta modifiche/inserimenti/cancellazioni nel DB in tempo reale
+    // Ascolto reattivo delle modifiche su Isar
     _exercisesSubscription = widget.isar.exercises.watchLazy().listen((_) {
       _fetchExercisesFromDb(showSpinner: false);
     });
@@ -66,7 +74,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     super.dispose();
   }
 
-  /// Estrazione di tutti gli esercizi salvati in Isar ordinati per nome
   Future<void> _fetchExercisesFromDb({bool showSpinner = true}) async {
     if (showSpinner) {
       setState(() => _isLoading = true);
@@ -83,7 +90,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     }
   }
 
-  /// Estrae dinamicamente i gruppi muscolari presenti tra gli esercizi del DB
   List<String> get _availableFilterGroups {
     final groupsInDb =
         _allExercises
@@ -96,7 +102,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     return ['Tutti', ...groupsInDb];
   }
 
-  /// Filtraggio per gruppo muscolare e stringa di ricerca
   List<Exercise> get _filteredExercises {
     return _allExercises.where((ex) {
       final matchesGroup =
@@ -112,16 +117,9 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
   @override
   Widget build(BuildContext context) {
     final availableGroups = _availableFilterGroups;
-
     if (!availableGroups.contains(_selectedGroup)) {
       _selectedGroup = 'Tutti';
     }
-
-    // Calcolo opacità superiore dinamica: 1.0 a riposo (nessuna sfumatura), sfuma verso 0.0 con lo scroll
-    final double topStartOpacity = (1.0 - (_topScrollOffset / 35.0)).clamp(
-      0.0,
-      1.0,
-    );
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
@@ -141,7 +139,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                 children: [
                   Row(
                     children: [
-                      // Tasto per tornare indietro
                       IconButton(
                         onPressed: () {
                           HapticFeedback.lightImpact();
@@ -186,13 +183,13 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                     onPressed: () => _openExerciseModal(),
                     icon: const Icon(
                       Icons.add_rounded,
-                      color: Colors.black,
+                      color: Colors.white,
                       size: 20,
                     ),
                     label: const Text(
                       'Nuovo',
                       style: TextStyle(
-                        color: Colors.black,
+                        color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
                       ),
@@ -265,7 +262,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
 
             const SizedBox(height: 14),
 
-            // --- FILTRO GRUPPI MUSCOLARI DINAMICO DA DB ---
+            // --- FILTRO GRUPPI MUSCOLARI ---
             if (availableGroups.length > 1) ...[
               SizedBox(
                 height: 38,
@@ -319,10 +316,12 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                   },
                 ),
               ),
-              const SizedBox(height: 12),
             ],
 
-            // --- LISTA ESERCIZI CON FADE FLUIDO SENZA RIGA TRASPARENTE ---
+            // Spaziatore pulito senza interruzioni trasparenti
+            const SizedBox(height: 10),
+
+            // --- LISTA CON FADE FLUIDO SUPERIORE E INFERIORE ---
             Expanded(
               child:
                   _isLoading
@@ -337,12 +336,9 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                       ? _buildEmptyFilteredState()
                       : ShaderMask(
                         shaderCallback: (Rect bounds) {
-                          // Progress: 0.0 a lista ferma in cima, 1.0 dopo 15px di scorrimento
                           final double scrollProgress =
-                              (_topScrollOffset / 15.0).clamp(0.0, 1.0);
-
-                          // Altezza del fade superiore: 0px a riposo, fino a 40 durante lo scroll
-                          final double topFadePixels = 40.0 * scrollProgress;
+                              (_topScrollOffset / 35.0).clamp(0.0, 1.0);
+                          final double topFadePixels = 32.0 * scrollProgress;
                           final double topFadeStop =
                               (topFadePixels / bounds.height).clamp(0.0, 0.15);
 
@@ -350,30 +346,22 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              // A riposo = nero opaco (nessuna riga/taglio).
-                              // Man mano che scorri verso il basso = sfuma dolcemente a trasparente.
                               Colors.black.withValues(
                                 alpha: 1.0 - scrollProgress,
                               ),
                               Colors.black,
                               Colors.black,
-                              Colors
-                                  .transparent, // Fade morbido in basso verso la navbar
+                              Colors.transparent,
                             ],
-                            stops: [
-                              0.0,
-                              topFadeStop, // Si espande dolcemente dai bordi solo allo scroll
-                              0.92,
-                              1.0,
-                            ],
+                            stops: [0.0, topFadeStop, 0.92, 1.0],
                           ).createShader(bounds);
                         },
                         blendMode: BlendMode.dstIn,
                         child: ListView.builder(
                           controller: _scrollController,
                           physics: const BouncingScrollPhysics(),
-                          // TOP A ZERO: elimina qualsiasi micro-fessura o padding fantasma in cima!
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 95),
+                          // top a 0 per azzerare fessure vuote in cima
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 95),
                           itemCount: _filteredExercises.length,
                           itemBuilder: (context, index) {
                             return _buildExerciseItemCard(
@@ -389,7 +377,11 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     );
   }
 
+  // --- CARD ESERCIZIO ---
   Widget _buildExerciseItemCard(Exercise exercise) {
+    final bool hasImage =
+        exercise.imagePath != null && File(exercise.imagePath!).existsSync();
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -399,18 +391,35 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
         border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: const Color(0xFFFF9700).withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             ),
-            child: const Icon(
-              Icons.fitness_center_rounded,
-              color: Color(0xFFFF9700),
-              size: 22,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child:
+                  hasImage
+                      ? Image.file(
+                        File(exercise.imagePath!),
+                        fit: BoxFit.cover,
+                        errorBuilder:
+                            (_, __, ___) => const Icon(
+                              Icons.fitness_center_rounded,
+                              color: Color(0xFFFF9700),
+                              size: 22,
+                            ),
+                      )
+                      : const Icon(
+                        Icons.fitness_center_rounded,
+                        color: Color(0xFFFF9700),
+                        size: 22,
+                      ),
             ),
           ),
           const SizedBox(width: 14),
@@ -494,6 +503,18 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                       ),
                   ],
                 ),
+                if (exercise.isCompound &&
+                    exercise.secondaryMuscles.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Secondari: ${exercise.secondaryMuscles.join(', ')}',
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -617,12 +638,16 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     );
   }
 
-  // --- MODALE DI CREAZIONE / MODIFICA SU ISAR ---
+  // --- MODALE DI CREAZIONE / MODIFICA CON DROPDOWN A CARD E BORDI ARROTONDATI ---
   void _openExerciseModal({Exercise? existing}) {
     final nameController = TextEditingController(text: existing?.name ?? '');
     String selectedMuscle = existing?.muscleGroup ?? _muscleCategories.first;
     bool isCompound = existing?.isCompound ?? false;
     String selectedEquipment = existing?.equipment ?? 'Bilanciere';
+    String? currentImagePath = existing?.imagePath;
+
+    final List<String> selectedSecondaryMuscles =
+        existing != null ? List<String>.from(existing.secondaryMuscles) : [];
 
     final equipmentOptions = const [
       'Bilanciere',
@@ -643,18 +668,23 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final List<String> availableSecondaryCategories =
+                _muscleCategories.where((m) => m != selectedMuscle).toList();
+
             return Padding(
               padding: EdgeInsets.only(
                 top: 16,
                 left: 20,
                 right: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 34,
               ),
               child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Maniglia
                     Center(
                       child: Container(
                         width: 44,
@@ -677,9 +707,149 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // Nome Esercizio
+                    // --- SELETTORE IMMAGINE QUADRATO E CENTRATO ---
+                    Center(
+                      child: GestureDetector(
+                        onTap: () async {
+                          final picker = ImagePicker();
+                          final XFile? pickedFile = await picker.pickImage(
+                            source: ImageSource.gallery,
+                            maxWidth: 900,
+                            maxHeight: 900,
+                            imageQuality: 85,
+                          );
+
+                          if (pickedFile != null) {
+                            final appDir =
+                                await getApplicationDocumentsDirectory();
+                            final String fileName =
+                                'ex_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                            final File permanentFile = await File(
+                              pickedFile.path,
+                            ).copy('${appDir.path}/$fileName');
+
+                            setModalState(() {
+                              currentImagePath = permanentFile.path;
+                            });
+                          }
+                        },
+                        child: Container(
+                          width: 220,
+                          height: 220,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF141414),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color:
+                                  currentImagePath != null
+                                      ? const Color(
+                                        0xFFFF9700,
+                                      ).withValues(alpha: 0.6)
+                                      : Colors.white12,
+                              width: 1.5,
+                            ),
+                          ),
+                          child:
+                              currentImagePath != null &&
+                                      File(currentImagePath!).existsSync()
+                                  ? Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(18),
+                                        child: Image.file(
+                                          File(currentImagePath!),
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(
+                                            18,
+                                          ),
+                                          color: Colors.black.withValues(
+                                            alpha: 0.25,
+                                          ),
+                                        ),
+                                      ),
+                                      Center(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.65,
+                                            ),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.edit_rounded,
+                                            color: Colors.white,
+                                            size: 20,
+                                          ),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 6,
+                                        right: 6,
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            setModalState(() {
+                                              currentImagePath = null;
+                                            });
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.black54,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.close,
+                                              color: Colors.white,
+                                              size: 16,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                  : Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.add_photo_alternate_rounded,
+                                        color: const Color(
+                                          0xFFFF9700,
+                                        ).withValues(alpha: 0.85),
+                                        size: 38,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'Aggiungi Foto',
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      const Text(
+                                        'Galleria',
+                                        style: TextStyle(
+                                          color: Colors.white38,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // --- NOME ESERCIZIO ---
                     TextField(
                       controller: nameController,
                       style: const TextStyle(color: Colors.white),
@@ -692,116 +862,471 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                         filled: true,
                         fillColor: const Color(0xFF141414),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(16),
                           borderSide: BorderSide.none,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 18),
 
-                    // Gruppo Muscolare Target
-                    const Text(
-                      'Gruppo Muscolare',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF141414),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: DropdownButton<String>(
-                        value:
-                            _muscleCategories.contains(selectedMuscle)
-                                ? selectedMuscle
-                                : _muscleCategories.first,
-                        isExpanded: true,
-                        underline: const SizedBox(),
-                        dropdownColor: const Color(0xFF1E1E1E),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
+                    // --- ROW DEI DUE DROPDOWN (GRUPPO MUSCOLARE + ATTREZZATURA) ---
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 1. GRUPPO MUSCOLARE PRIMARIO
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Gruppo Target',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF141414),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.06),
+                                  ),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: Theme(
+                                    data: Theme.of(context).copyWith(
+                                      focusColor: Colors.transparent,
+                                      hoverColor: Colors.transparent,
+                                      splashColor: Colors.transparent,
+                                      highlightColor: Colors.transparent,
+                                      splashFactory: NoSplash.splashFactory,
+                                    ),
+                                    child: DropdownButton<String>(
+                                      value:
+                                          _muscleCategories.contains(
+                                                selectedMuscle,
+                                              )
+                                              ? selectedMuscle
+                                              : _muscleCategories.first,
+                                      isExpanded: true,
+                                      dropdownColor: const Color(0xFF1E1E1E),
+                                      borderRadius: BorderRadius.circular(18),
+                                      icon: const Icon(
+                                        Icons.keyboard_arrow_down_rounded,
+                                        color: Color(0xFFFF9700),
+                                        size: 22,
+                                      ),
+                                      selectedItemBuilder: (context) {
+                                        return _muscleCategories.map((group) {
+                                          return Row(
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.all(
+                                                  5,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFFFF9700,
+                                                  ).withValues(alpha: 0.15),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: const Icon(
+                                                  Icons
+                                                      .accessibility_new_rounded,
+                                                  color: Color(0xFFFF9700),
+                                                  size: 15,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  group,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        }).toList();
+                                      },
+                                      items:
+                                          _muscleCategories.map((group) {
+                                            final isSelected =
+                                                group == selectedMuscle;
+                                            return DropdownMenuItem<String>(
+                                              value: group,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 8,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      isSelected
+                                                          ? const Color(
+                                                            0xFFFF9700,
+                                                          ).withValues(
+                                                            alpha: 0.12,
+                                                          )
+                                                          : Colors.transparent,
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  border: Border.all(
+                                                    color:
+                                                        isSelected
+                                                            ? const Color(
+                                                              0xFFFF9700,
+                                                            )
+                                                            : Colors
+                                                                .transparent,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      group,
+                                                      style: TextStyle(
+                                                        color:
+                                                            isSelected
+                                                                ? const Color(
+                                                                  0xFFFF9700,
+                                                                )
+                                                                : Colors.white,
+                                                        fontSize: 13,
+                                                        fontWeight:
+                                                            isSelected
+                                                                ? FontWeight
+                                                                    .bold
+                                                                : FontWeight
+                                                                    .normal,
+                                                      ),
+                                                    ),
+                                                    if (isSelected)
+                                                      const Icon(
+                                                        Icons.check_rounded,
+                                                        color: Color(
+                                                          0xFFFF9700,
+                                                        ),
+                                                        size: 16,
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                      onChanged: (v) {
+                                        if (v != null) {
+                                          HapticFeedback.selectionClick();
+                                          setModalState(() {
+                                            selectedMuscle = v;
+                                            selectedSecondaryMuscles.remove(v);
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        items:
-                            _muscleCategories.map((m) {
-                              return DropdownMenuItem(value: m, child: Text(m));
-                            }).toList(),
-                        onChanged: (v) {
-                          if (v != null) {
-                            setModalState(() => selectedMuscle = v);
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
 
-                    // Attrezzatura
-                    const Text(
-                      'Attrezzatura',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF141414),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: DropdownButton<String>(
-                        value:
-                            equipmentOptions.contains(selectedEquipment)
-                                ? selectedEquipment
-                                : equipmentOptions.first,
-                        isExpanded: true,
-                        underline: const SizedBox(),
-                        dropdownColor: const Color(0xFF1E1E1E),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
+                        const SizedBox(width: 10),
+
+                        // 2. ATTREZZATURA
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Attrezzatura',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF141414),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.06),
+                                  ),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: Theme(
+                                    data: Theme.of(context).copyWith(
+                                      focusColor: Colors.transparent,
+                                      hoverColor: Colors.transparent,
+                                      splashColor: Colors.transparent,
+                                      highlightColor: Colors.transparent,
+                                      splashFactory: NoSplash.splashFactory,
+                                    ),
+                                    child: DropdownButton<String>(
+                                      value:
+                                          equipmentOptions.contains(
+                                                selectedEquipment,
+                                              )
+                                              ? selectedEquipment
+                                              : equipmentOptions.first,
+                                      isExpanded: true,
+                                      dropdownColor: const Color(0xFF1E1E1E),
+                                      borderRadius: BorderRadius.circular(18),
+                                      icon: const Icon(
+                                        Icons.keyboard_arrow_down_rounded,
+                                        color: Color(0xFFFF9700),
+                                        size: 22,
+                                      ),
+                                      selectedItemBuilder: (context) {
+                                        return equipmentOptions.map((eq) {
+                                          return Row(
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.all(
+                                                  5,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFFFF9700,
+                                                  ).withValues(alpha: 0.15),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.fitness_center_rounded,
+                                                  color: Color(0xFFFF9700),
+                                                  size: 15,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  eq,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        }).toList();
+                                      },
+                                      items:
+                                          equipmentOptions.map((eq) {
+                                            final isSelected =
+                                                eq == selectedEquipment;
+                                            return DropdownMenuItem<String>(
+                                              value: eq,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 8,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      isSelected
+                                                          ? const Color(
+                                                            0xFFFF9700,
+                                                          ).withValues(
+                                                            alpha: 0.12,
+                                                          )
+                                                          : Colors.transparent,
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  border: Border.all(
+                                                    color:
+                                                        isSelected
+                                                            ? const Color(
+                                                              0xFFFF9700,
+                                                            )
+                                                            : Colors
+                                                                .transparent,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      eq,
+                                                      style: TextStyle(
+                                                        color:
+                                                            isSelected
+                                                                ? const Color(
+                                                                  0xFFFF9700,
+                                                                )
+                                                                : Colors.white,
+                                                        fontSize: 13,
+                                                        fontWeight:
+                                                            isSelected
+                                                                ? FontWeight
+                                                                    .bold
+                                                                : FontWeight
+                                                                    .normal,
+                                                      ),
+                                                    ),
+                                                    if (isSelected)
+                                                      const Icon(
+                                                        Icons.check_rounded,
+                                                        color: Color(
+                                                          0xFFFF9700,
+                                                        ),
+                                                        size: 16,
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                      onChanged: (v) {
+                                        if (v != null) {
+                                          HapticFeedback.selectionClick();
+                                          setModalState(
+                                            () => selectedEquipment = v,
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        items:
-                            equipmentOptions.map((eq) {
-                              return DropdownMenuItem(
-                                value: eq,
-                                child: Text(eq),
-                              );
-                            }).toList(),
-                        onChanged: (v) {
-                          if (v != null) {
-                            setModalState(() => selectedEquipment = v);
-                          }
-                        },
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
 
-                    // Flag Multiarticolare
+                    // --- SWITCH MULTIARTICOLARE (COMPOUND) ---
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
                         'Esercizio Multiarticolare (Compound)',
-                        style: TextStyle(color: Colors.white, fontSize: 14),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       subtitle: const Text(
-                        'Abilita il calcolo e il tracciamento del massimale 1RM',
+                        'Coinvolge più articolazioni e muscoli secondari (1RM)',
                         style: TextStyle(color: Colors.white38, fontSize: 11),
                       ),
                       value: isCompound,
                       activeColor: const Color(0xFFFF9700),
-                      onChanged: (v) => setModalState(() => isCompound = v),
+                      onChanged: (v) {
+                        setModalState(() {
+                          isCompound = v;
+                          if (!isCompound) {
+                            selectedSecondaryMuscles.clear();
+                          }
+                        });
+                      },
                     ),
-                    const SizedBox(height: 18),
 
-                    // Pulsante Salva su Isar
+                    // --- SEZIONE MUSCOLI SECONDARI (CONDIZIONALE) ---
+                    if (isCompound) ...[
+                      const Divider(color: Colors.white10, height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Muscoli Secondari / Sinergici',
+                            style: TextStyle(
+                              color: Color(0xFFFFB74D),
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '${selectedSecondaryMuscles.length} selezionati',
+                            style: const TextStyle(
+                              color: Colors.white38,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            availableSecondaryCategories.map((muscle) {
+                              final isSelected = selectedSecondaryMuscles
+                                  .contains(muscle);
+                              return FilterChip(
+                                label: Text(muscle),
+                                selected: isSelected,
+                                onSelected: (selected) {
+                                  setModalState(() {
+                                    if (selected) {
+                                      selectedSecondaryMuscles.add(muscle);
+                                    } else {
+                                      selectedSecondaryMuscles.remove(muscle);
+                                    }
+                                  });
+                                },
+                                labelStyle: TextStyle(
+                                  color:
+                                      isSelected
+                                          ? Colors.black
+                                          : Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight:
+                                      isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                ),
+                                selectedColor: const Color(0xFFFF9700),
+                                backgroundColor: const Color(0xFF141414),
+                                checkmarkColor: Colors.black,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  side: BorderSide(
+                                    color:
+                                        isSelected
+                                            ? Colors.transparent
+                                            : Colors.white12,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+                    ],
+
+                    const SizedBox(height: 26),
+
+                    // --- PULSANTE SALVA ---
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -822,6 +1347,9 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                           target.muscleGroup = selectedMuscle;
                           target.isCompound = isCompound;
                           target.equipment = selectedEquipment;
+                          target.imagePath = currentImagePath;
+                          target.secondaryMuscles =
+                              isCompound ? selectedSecondaryMuscles : [];
 
                           await widget.isar.writeTxn(() async {
                             await widget.isar.exercises.put(target);
@@ -834,6 +1362,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
+                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -848,7 +1377,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     );
   }
 
-  // Conferma ed eliminazione fisica da Isar
   void _confirmDeleteExercise(Exercise exercise) {
     showDialog(
       context: context,

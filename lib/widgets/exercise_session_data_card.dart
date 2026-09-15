@@ -4,9 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
 
 import '../models/stats_model.dart';
-import '../models/session.dart';
-import '../models/workout_set.dart';
 import '../models/exercise.dart';
+import '../models/workout_set.dart';
+import '../models/session.dart';
+import 'ex_search_bar.dart';
 
 class ExerciseSessionData {
   final String date;
@@ -44,7 +45,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
   late final Animation<double> _curveAnimation;
 
   int _selectedPointIndex = -1;
-  String _selectedExercise = 'Alzate Laterali Cavi';
+  String? _selectedExercise;
 
   List<String> _availableExercises = [];
   List<ExerciseSessionData> _realHistory = [];
@@ -88,26 +89,23 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
       return;
     }
 
-    // 1. Estrai la lista di tutti gli esercizi presenti nel DB
+    // Estrai tutti gli esercizi e ordinali alfabeticamente
     final exercisesInDb = await widget.isar!.exercises.where().findAll();
-    final exerciseNames = exercisesInDb.map((e) => e.name).toSet().toList();
+    final exerciseNames =
+        exercisesInDb.map((e) => e.name).toSet().toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-    // Se il database non ha ancora esercizi creati, usa un catalogo di fallback
-    final available =
-        exerciseNames.isNotEmpty
-            ? exerciseNames
-            : [
-              'Alzate Laterali Cavi',
-              'Leg Extension',
-              'Curl Bilanciere Sagomato',
-              'Pushdown Cavo Corda',
-              'Calf Machine Seduto',
-              'Panca Piana Bilanciere',
-              'Trazioni alla Sbarra',
-            ];
+    if (exerciseNames.isEmpty) {
+      setState(() {
+        _availableExercises = [];
+        _isLoading = false;
+      });
+      return;
+    }
 
-    if (!available.contains(_selectedExercise)) {
-      _selectedExercise = available.first;
+    if (_selectedExercise == null ||
+        !exerciseNames.contains(_selectedExercise)) {
+      _selectedExercise = exerciseNames.first;
     }
 
     final now = DateTime.now();
@@ -129,14 +127,14 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
         break;
     }
 
-    // 2. Calcolo PR di peso assoluto per questo esercizio
+    // PR storico per l'esercizio selezionato
     final allTimeSets =
         await widget.isar!.workoutSets
             .filter()
             .isWarmupEqualTo(false)
             .and()
             .exercise(
-              (q) => q.nameEqualTo(_selectedExercise, caseSensitive: false),
+              (q) => q.nameEqualTo(_selectedExercise!, caseSensitive: false),
             )
             .findAll();
 
@@ -145,7 +143,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
       if (s.weight > maxWeight) maxWeight = s.weight;
     }
 
-    // 3. Estrai sessioni nel periodo
+    // Sessioni nel periodo
     final sessions =
         await widget.isar!.sessions
             .filter()
@@ -164,7 +162,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
               .session((q) => q.idEqualTo(session.id))
               .and()
               .exercise(
-                (q) => q.nameEqualTo(_selectedExercise, caseSensitive: false),
+                (q) => q.nameEqualTo(_selectedExercise!, caseSensitive: false),
               )
               .and()
               .isWarmupEqualTo(false)
@@ -172,7 +170,6 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
 
       if (sets.isEmpty) continue;
 
-      // Trova il miglior set allenante (score carico x ripetizioni)
       WorkoutSet? bestSet;
       double bestScore = 0.0;
 
@@ -198,7 +195,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
 
     if (mounted) {
       setState(() {
-        _availableExercises = available;
+        _availableExercises = exerciseNames;
         _exercisePrWeight = maxWeight;
         _realHistory = historyPoints;
         _isLoading = false;
@@ -247,6 +244,30 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
     if (lastScore > firstScore) return const Color(0xFFFF9700);
     if (lastScore < firstScore) return Colors.redAccent;
     return Colors.white54;
+  }
+
+  Future<void> _showExercisePickerModal() async {
+    HapticFeedback.selectionClick();
+    final selected = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => ExerciseSearchPage(
+              title: 'Seleziona Esercizio',
+              items: _availableExercises,
+              selectedItem: _selectedExercise,
+            ),
+      ),
+    );
+
+    if (selected != null && selected != _selectedExercise) {
+      setState(() {
+        _selectedExercise = selected;
+        _selectedPointIndex = -1;
+      });
+      _fetchDatabaseExerciseData();
+      _animController.forward(from: 0.0);
+    }
   }
 
   @override
@@ -306,159 +327,71 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
           ),
           const SizedBox(height: 14),
 
-          // Menu Dropdown per qualsiasi esercizio reale
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF141414),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedExercise,
-                isExpanded: true,
-                itemHeight: null,
-                dropdownColor: const Color(0xFF191919),
-                borderRadius: BorderRadius.circular(20),
-                icon: const Padding(
-                  padding: EdgeInsets.only(right: 4.0),
-                  child: Icon(
+          // Selettore Esercizio con apertura ModalBottomSheet
+          GestureDetector(
+            onTap:
+                _availableExercises.isNotEmpty
+                    ? _showExercisePickerModal
+                    : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9700).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.fitness_center_rounded,
+                      color: Color(0xFFFF9700),
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _selectedExercise ?? 'Nessun esercizio',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_exercisePrWeight > 0)
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2E),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'PR ${_exercisePrWeight.toStringAsFixed(1)} kg',
+                        style: const TextStyle(
+                          color: Color(0xFFFF9700),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  const Icon(
                     Icons.keyboard_arrow_down_rounded,
                     color: Color(0xFFFF9700),
                     size: 26,
                   ),
-                ),
-                selectedItemBuilder: (context) {
-                  return _availableExercises.map((name) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4.0),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFFFF9700,
-                              ).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.fitness_center_rounded,
-                              color: Color(0xFFFF9700),
-                              size: 18,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList();
-                },
-                items:
-                    _availableExercises.map((name) {
-                      final bool isSelected = name == _selectedExercise;
-                      return DropdownMenuItem<String>(
-                        value: name,
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color:
-                                isSelected
-                                    ? const Color(0xFF222222)
-                                    : const Color(0xFF141414),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color:
-                                  isSelected
-                                      ? const Color(0xFFFF9700)
-                                      : Colors.white.withValues(alpha: 0.05),
-                              width: isSelected ? 1.2 : 1.0,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: const Color(
-                                    0xFFFF9700,
-                                  ).withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(
-                                  Icons.fitness_center_rounded,
-                                  color: Color(0xFFFF9700),
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  style: TextStyle(
-                                    color:
-                                        isSelected
-                                            ? const Color(0xFFFF9700)
-                                            : Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (_exercisePrWeight > 0 && isSelected)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF2C2C2E),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'PR ${_exercisePrWeight.toStringAsFixed(1)} kg',
-                                    style: const TextStyle(
-                                      color: Color(0xFFFF9700),
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _selectedExercise = val;
-                      _selectedPointIndex = -1;
-                    });
-                    _fetchDatabaseExerciseData();
-                    _animController.forward(from: 0.0);
-                  }
-                },
+                ],
               ),
             ),
           ),
@@ -478,8 +411,8 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
               child: Center(
                 child: Text(
                   points.isEmpty
-                      ? 'Nessun dato registrato per $_selectedExercise'
-                      : 'Registra un\'altra sessione per vedere il trend',
+                      ? 'Nessun dato registrato per ${_selectedExercise ?? "questo esercizio"}'
+                      : 'Registra un\'altra sessione per tracciare il trend',
                   style: const TextStyle(color: Colors.white38, fontSize: 12),
                   textAlign: TextAlign.center,
                 ),

@@ -7,6 +7,7 @@ import '../models/stats_model.dart';
 import '../models/session.dart';
 import '../models/workout_set.dart';
 import '../models/exercise.dart';
+import 'ex_search_bar.dart';
 
 class OneRmProgressionCard extends StatefulWidget {
   final Isar? isar;
@@ -78,7 +79,7 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
         break;
     }
 
-    // 1. Calcolo del PR Assoluto storico per questo esercizio da Isar
+    // PR storico dell'esercizio
     final allTimeSets =
         await widget.isar!.workoutSets
             .filter()
@@ -98,7 +99,7 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
       }
     }
 
-    // 2. Estrazione delle sessioni nel range temporale selezionato
+    // Sessioni nel periodo
     final sessions =
         await widget.isar!.sessions
             .filter()
@@ -111,7 +112,6 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
     final List<Map<String, dynamic>> historyPoints = [];
 
     for (final session in sessions) {
-      // Trova le serie dell'esercizio in questa specifica sessione
       final setsInSession =
           await widget.isar!.workoutSets
               .filter()
@@ -174,10 +174,48 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
     return '${d.day}/${d.month}';
   }
 
+  Future<void> _showCompoundPickerModal() async {
+    HapticFeedback.selectionClick();
+    final sortedNames =
+        widget.compoundList.map((e) => e.name).toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final selected = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => ExerciseSearchPage(
+              title: 'Multiarticolari (1RM)',
+              items: sortedNames,
+              selectedItem: widget.selectedExercise,
+            ),
+      ),
+    );
+
+    if (selected != null && selected != widget.selectedExercise) {
+      setState(() => _selected1RMIndex = -1);
+      widget.onExerciseChanged(selected);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<double> points =
         _realHistory.map<double>((e) => (e['val'] as num).toDouble()).toList();
+
+    final CompoundExerciseInfo currentExercise = widget.compoundList.firstWhere(
+      (e) => e.name == widget.selectedExercise,
+      orElse:
+          () =>
+              widget.compoundList.isNotEmpty
+                  ? widget.compoundList.first
+                  : const CompoundExerciseInfo(
+                    name: 'Esercizio',
+                    muscle: '',
+                    icon: Icons.fitness_center_rounded,
+                    pr: 0.0,
+                  ),
+    );
 
     return Container(
       width: double.infinity,
@@ -234,157 +272,57 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
           ),
           const SizedBox(height: 14),
 
-          // Dropdown degli Esercizi
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF141414),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: widget.selectedExercise,
-                isExpanded: true,
-                itemHeight: null,
-                dropdownColor: const Color(0xFF191919),
-                borderRadius: BorderRadius.circular(20),
-                icon: const Padding(
-                  padding: EdgeInsets.only(right: 4.0),
-                  child: Icon(
+          // Selettore Multiarticolare con apertura ModalBottomSheet
+          GestureDetector(
+            onTap:
+                widget.compoundList.isNotEmpty
+                    ? _showCompoundPickerModal
+                    : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9700).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      currentExercise.icon,
+                      color: const Color(0xFFFF9700),
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      currentExercise.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const Icon(
                     Icons.keyboard_arrow_down_rounded,
                     color: Color(0xFFFF9700),
                     size: 26,
                   ),
-                ),
-                selectedItemBuilder: (context) {
-                  return widget.compoundList.map((item) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4.0),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFFFF9700,
-                              ).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              item.icon,
-                              color: const Color(0xFFFF9700),
-                              size: 18,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              item.name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList();
-                },
-                items:
-                    widget.compoundList.map((item) {
-                      final bool isSelected =
-                          item.name == widget.selectedExercise;
-                      return DropdownMenuItem<String>(
-                        value: item.name,
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color:
-                                isSelected
-                                    ? const Color(0xFF222222)
-                                    : const Color(0xFF141414),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color:
-                                  isSelected
-                                      ? const Color(0xFFFF9700)
-                                      : Colors.white.withValues(alpha: 0.05),
-                              width: isSelected ? 1.2 : 1.0,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: const Color(
-                                    0xFFFF9700,
-                                  ).withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Icon(
-                                  item.icon,
-                                  color: const Color(0xFFFF9700),
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      item.name,
-                                      style: TextStyle(
-                                        color:
-                                            isSelected
-                                                ? const Color(0xFFFF9700)
-                                                : Colors.white,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      item.muscle,
-                                      style: const TextStyle(
-                                        color: Colors.white38,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    HapticFeedback.selectionClick();
-                    setState(() => _selected1RMIndex = -1);
-                    widget.onExerciseChanged(val);
-                  }
-                },
+                ],
               ),
             ),
           ),
           const SizedBox(height: 18),
 
-          // Grafico o Placeholder se non ci sono dati
+          // Grafico 1RM o stato di caricamento
           if (_isLoading)
             const SizedBox(
               height: 160,
@@ -398,7 +336,7 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
               child: Center(
                 child: Text(
                   points.isEmpty
-                      ? 'Nessun dato registrato in questo periodo'
+                      ? 'Nessun dato registrato per ${widget.selectedExercise}'
                       : 'Registra un\'altra sessione per vedere la curva',
                   style: const TextStyle(color: Colors.white38, fontSize: 12),
                   textAlign: TextAlign.center,
