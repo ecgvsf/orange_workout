@@ -302,7 +302,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                           child: Text(
                             group,
                             style: TextStyle(
-                              color: isSelected ? Colors.black : Colors.white70,
+                              color: isSelected ? Colors.white : Colors.white70,
                               fontWeight:
                                   isSelected
                                       ? FontWeight.bold

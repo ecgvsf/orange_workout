@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
 import '../models/routine_template.dart';
-import '../models/exercise.dart';
+import '../pages/create_routine_page.dart';
+import '../widgets/custom_dialog.dart';
 
 class RoutinesScreen extends StatefulWidget {
   final Isar? isar;
@@ -13,174 +16,166 @@ class RoutinesScreen extends StatefulWidget {
 }
 
 class _RoutinesScreenState extends State<RoutinesScreen> {
-  // Struttura dati locale (mock/fallback se Isar non ha ancora dati salvati)
-  List<Map<String, dynamic>> _routines = [
-    {
-      'id': 1,
-      'name': 'Push A (Spinta & Petto Focus)',
-      'notes': 'Focus su panca piana e progressione di carico sui tricipiti.',
-      'exercises': [
-        {
-          'name': 'Panca Piana Bilanciere',
-          'sets': 4,
-          'reps': '6-8',
-          'muscle': 'Chest',
-        },
-        {
-          'name': 'Spinte Manubri Inclinata',
-          'sets': 3,
-          'reps': '8-10',
-          'muscle': 'Chest',
-        },
-        {
-          'name': 'Military Press',
-          'sets': 3,
-          'reps': '8',
-          'muscle': 'Shoulders',
-        },
-        {'name': 'Dip Parallele', 'sets': 3, 'reps': '10', 'muscle': 'Chest'},
-        {
-          'name': 'French Press Bilanciere EZ',
-          'sets': 4,
-          'reps': '10-12',
-          'muscle': 'Triceps',
-        },
-        {
-          'name': 'Alzate Laterali ai Cavi',
-          'sets': 4,
-          'reps': '12-15',
-          'muscle': 'Shoulders',
-        },
-      ],
-    },
-    {
-      'id': 2,
-      'name': 'Pull A (Tirata & Dorso Focus)',
-      'notes': 'Focus ampiezza dorsale e spessore romboidi.',
-      'exercises': [
-        {
-          'name': 'Trazioni alla Sbarra Zavorrate',
-          'sets': 4,
-          'reps': '6',
-          'muscle': 'Back',
-        },
-        {
-          'name': 'Rematore con Bilanciere',
-          'sets': 4,
-          'reps': '8',
-          'muscle': 'Back',
-        },
-        {
-          'name': 'Pulley Basso al Cavo',
-          'sets': 3,
-          'reps': '10',
-          'muscle': 'Back',
-        },
-        {'name': 'Face Pull', 'sets': 3, 'reps': '15', 'muscle': 'Rear Delts'},
-        {
-          'name': 'Curl con Bilanciere Sagomato',
-          'sets': 4,
-          'reps': '8-10',
-          'muscle': 'Biceps',
-        },
-        {
-          'name': 'Hammer Curl con Manubri',
-          'sets': 3,
-          'reps': '12',
-          'muscle': 'Biceps',
-        },
-      ],
-    },
-    {
-      'id': 3,
-      'name': 'Legs & Core (Quad Focus)',
-      'notes': 'RPE 8.5 sui fondamentali, cura il ROM profondo.',
-      'exercises': [
-        {
-          'name': 'Squat con Bilanciere',
-          'sets': 4,
-          'reps': '6',
-          'muscle': 'Legs',
-        },
-        {'name': 'Leg Press 45°', 'sets': 3, 'reps': '10', 'muscle': 'Legs'},
-        {'name': 'Leg Extension', 'sets': 3, 'reps': '12', 'muscle': 'Legs'},
-        {
-          'name': 'Leg Curl da Seduto',
-          'sets': 4,
-          'reps': '10',
-          'muscle': 'Hamstrings',
-        },
-        {
-          'name': 'Calf Raise in Piedi',
-          'sets': 4,
-          'reps': '15',
-          'muscle': 'Calves',
-        },
-        {'name': 'Plank Zavorrato', 'sets': 3, 'reps': '60s', 'muscle': 'Core'},
-      ],
-    },
+  // Controller per monitorare lo scorrimento della lista
+  final ScrollController _scrollController = ScrollController();
+  double _topScrollOffset = 0.0;
+
+  StreamSubscription? _routinesSubscription;
+  List<RoutineTemplate> _routines = [];
+  bool _isLoading = true;
+
+  String _selectedSplitFilter = 'Tutti';
+  final List<String> _splitFilters = const [
+    'Tutti',
+    'Push',
+    'Pull',
+    'Legs',
+    'Upper',
+    'Lower',
+    'Full Body',
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    _fetchRoutines();
+
+    // Ascolto in tempo reale delle modifiche nella collection di Isar
+    if (widget.isar != null) {
+      _routinesSubscription = widget.isar!.routineTemplates.watchLazy().listen((
+        _,
+      ) {
+        _fetchRoutines(showSpinner: false);
+      });
+    }
+  }
+
+  void _onScroll() {
+    final double offset =
+        _scrollController.hasClients ? _scrollController.offset : 0.0;
+    final double clamped = offset.clamp(0.0, 30.0);
+    if (clamped != _topScrollOffset) {
+      setState(() => _topScrollOffset = clamped);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _routinesSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchRoutines({bool showSpinner = true}) async {
+    if (widget.isar == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    if (showSpinner) {
+      setState(() => _isLoading = true);
+    }
+
+    final data =
+        await widget.isar!.routineTemplates.where().sortByName().findAll();
+
+    if (mounted) {
+      setState(() {
+        _routines = data;
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<RoutineTemplate> get _filteredRoutines {
+    if (_selectedSplitFilter == 'Tutti') return _routines;
+    return _routines
+        .where(
+          (r) =>
+              r.macroSplit.toLowerCase() == _selectedSplitFilter.toLowerCase(),
+        )
+        .toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Spazio per non coprire le ultime card con la floating bottom navigation bar
-    final double bottomInset = MediaQuery.of(context).padding.bottom;
-    final double cutOffBottom = bottomInset + 95.0;
+    final double bottomPadding = MediaQuery.of(context).padding.bottom + 100.0;
 
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 0, 0, 0),
+      backgroundColor: const Color(0xFF121212),
       body: SafeArea(
         bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 8),
 
-              // --- HEADER PRINCIPALE ---
-              Row(
+            // --- HEADER SUPERIORE ---
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
                     children: [
-                      const Text(
-                        'Schede & Routine',
-                        style: TextStyle(
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
                           color: Colors.white,
-                          fontSize: 26,
-                          fontWeight: FontWeight.bold,
+                          size: 20,
                         ),
+                        onPressed: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(context).maybePop();
+                        },
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${_routines.length} schede attive nel mesociclo',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 13,
-                        ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Schede & Routine',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${_routines.length} programmazioni attive',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  // Tasto aggiungi nuova scheda
                   ElevatedButton.icon(
-                    onPressed: () => _openRoutineEditor(),
+                    onPressed: () => _openCreateRoutine(),
                     icon: const Icon(
                       Icons.add_rounded,
-                      color: Colors.black,
-                      size: 20,
+                      color: Colors.white,
+                      size: 18,
                     ),
                     label: const Text(
                       'Nuova',
                       style: TextStyle(
-                        color: Colors.black,
+                        color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFF9700),
+                      foregroundColor: Colors.black,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -193,68 +188,232 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                   ),
                 ],
               ),
+            ),
 
-              const SizedBox(height: 12),
-              const Divider(color: Color(0xFFFF9700), thickness: 1, height: 1),
-              const SizedBox(height: 14),
+            const SizedBox(height: 10),
+            const Divider(color: Color(0xFFFF9700), thickness: 1, height: 1),
+            const SizedBox(height: 12),
 
-              // --- LISTA SCHEDE ---
-              Expanded(
-                child:
-                    _routines.isEmpty
-                        ? _buildEmptyState()
-                        : ListView.builder(
-                          physics: const BouncingScrollPhysics(),
-                          padding: EdgeInsets.only(bottom: cutOffBottom),
-                          itemCount: _routines.length,
-                          itemBuilder: (context, index) {
-                            final routine = _routines[index];
-                            return _buildRoutineCard(routine, index);
-                          },
-                        ),
+            // --- FILTRO RAPIDO SPLIT (CHIP SCORREVOLI) ---
+            SizedBox(
+              height: 36,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                itemCount: _splitFilters.length,
+                itemBuilder: (context, index) {
+                  final filter = _splitFilters[index];
+                  final isSelected = filter == _selectedSplitFilter;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ChoiceChip(
+                      label: Text(filter),
+                      selected: isSelected,
+                      checkmarkColor: Colors.white,
+                      onSelected: (selected) {
+                        if (selected) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _selectedSplitFilter = filter);
+                        }
+                      },
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontSize: 12,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.w500,
+                      ),
+                      backgroundColor: const Color(0xFF1E1E1E),
+                      selectedColor: const Color(0xFFFF9700),
+                      side: BorderSide(
+                        color: isSelected ? Colors.transparent : Colors.white12,
+                        width: 1,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                    ),
+                  );
+                },
               ),
-            ],
-          ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // --- BODY: LISTA CON FADE DINAMICO SUPERIORE E INFERIORE ---
+            Expanded(
+              child:
+                  _isLoading
+                      ? const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFFFF9700),
+                        ),
+                      )
+                      : _filteredRoutines.isEmpty
+                      ? _buildEmptyState()
+                      : Stack(
+                        children: [
+                          // 1. LISTA SCORREVOLE DELLE SCHEDE
+                          ListView.builder(
+                            controller: _scrollController,
+                            physics: const BouncingScrollPhysics(),
+                            padding: EdgeInsets.fromLTRB(
+                              16,
+                              6,
+                              16,
+                              bottomPadding,
+                            ),
+                            itemCount: _filteredRoutines.length,
+                            itemBuilder: (context, index) {
+                              final routine = _filteredRoutines[index];
+                              return _buildRoutineCard(routine, index);
+                            },
+                          ),
+
+                          // 2. SFUMATURA SUPERIORE (Attiva solo allo scroll, zero righe di taglio)
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: 38,
+                            child: IgnorePointer(
+                              child: Opacity(
+                                opacity: (_topScrollOffset / 30.0).clamp(
+                                  0.0,
+                                  1.0,
+                                ),
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0xFF121212),
+                                        Color(0xCC121212),
+                                        Color(0x00121212),
+                                      ],
+                                      stops: [0.0, 0.45, 1.0],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // 3. SFUMATURA INFERIORE (Morbida e costante verso il fondo)
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: 48,
+                            child: IgnorePointer(
+                              child: Container(
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.topCenter,
+                                    colors: [
+                                      Color(0xFF121212),
+                                      Color(0xCC121212),
+                                      Color(0x00121212),
+                                    ],
+                                    stops: [0.0, 0.45, 1.0],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // --- WIDGET SCHEDA SINGOLA ---
-  Widget _buildRoutineCard(Map<String, dynamic> routine, int index) {
-    final List<Map<String, dynamic>> exercises =
-        (routine['exercises'] as List).cast<Map<String, dynamic>>();
-
-    int totalSets = exercises.fold<int>(
+  // --- CARD SCHEDA MODERNA & APRIBILE ---
+  Widget _buildRoutineCard(RoutineTemplate routine, int index) {
+    final exercises = routine.exercises;
+    final int totalSets = exercises.fold<int>(
       0,
-      (sum, item) => sum + (item['sets'] as int? ?? 0),
+      (sum, item) => sum + item.targetSets,
     );
+
+    // Stima della durata: serie * tempo recupero medio + 45s esecuzione
+    final int totalRestSec = exercises.fold<int>(
+      0,
+      (sum, item) => sum + (item.targetSets * item.restSeconds),
+    );
+    final int estimatedMin =
+        exercises.isEmpty
+            ? 0
+            : (((totalSets * 45) + totalRestSec) / 60).round() + 5;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
+      // Taglia qualsiasi contenuto o alone esattamente lungo la curva a raggio 22
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        // Azzeramento totale degli effetti di flash/splash rettangolari al tocco
+        data: Theme.of(context).copyWith(
+          dividerColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          hoverColor: Colors.transparent,
+          splashFactory: NoSplash.splashFactory,
+        ),
         child: ExpansionTile(
           initiallyExpanded: index == 0,
           iconColor: const Color(0xFFFF9700),
           collapsedIconColor: Colors.white54,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-          childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-          title: Text(
-            routine['name'],
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-            ),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF9700).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text(
+                  routine.macroSplit.toUpperCase(),
+                  style: const TextStyle(
+                    color: Color(0xFFFF9700),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  routine.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
           subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4.0),
+            padding: const EdgeInsets.only(top: 6.0),
             child: Row(
               children: [
                 _buildBadge(
@@ -262,11 +421,17 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                   const Color(0xFF2C2C2E),
                   Colors.white70,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 _buildBadge(
-                  '$totalSets set tot.',
-                  const Color(0xFFFF9700).withValues(alpha: 0.15),
-                  const Color(0xFFFF9700),
+                  '$totalSets set',
+                  const Color(0xFF2C2C2E),
+                  Colors.white70,
+                ),
+                const SizedBox(width: 6),
+                _buildBadge(
+                  '~$estimatedMin min',
+                  const Color(0xFF2C2C2E),
+                  const Color(0xFFFFB74D),
                 ),
               ],
             ),
@@ -274,21 +439,16 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
           trailing: PopupMenuButton<String>(
             color: const Color(0xFF252528),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
             ),
-            icon: const Icon(Icons.more_vert, color: Colors.white70),
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.white54),
             onSelected: (value) {
               if (value == 'edit') {
-                _openRoutineEditor(existingRoutine: routine, index: index);
+                _openCreateRoutine(routineToEdit: routine);
               } else if (value == 'delete') {
-                _deleteRoutine(index);
+                _confirmDeleteRoutine(routine);
               } else if (value == 'start') {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Avvio sessione: ${routine['name']}'),
-                    backgroundColor: const Color(0xFFFF9700),
-                  ),
-                );
+                _startWorkout(routine);
               }
             },
             itemBuilder:
@@ -304,8 +464,11 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                         ),
                         SizedBox(width: 10),
                         Text(
-                          'Inizia Allenamento',
-                          style: TextStyle(color: Colors.white),
+                          'Inizia Sessione',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),
@@ -347,28 +510,44 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                 ],
           ),
           children: [
-            if (routine['notes'] != null &&
-                (routine['notes'] as String).isNotEmpty)
+            if (routine.notes != null && routine.notes!.trim().isNotEmpty)
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: const Color(0xFF141414),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  routine['notes'],
-                  style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.04),
                   ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.notes_rounded,
+                      color: Colors.white38,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        routine.notes!,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          height: 1.35,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-            // Lista degli esercizi inclusi nella scheda
-            ...exercises.map((exercise) {
+            // Lista Esercizi Programmati
+            ...exercises.map((config) {
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.symmetric(
@@ -378,7 +557,9 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                 decoration: BoxDecoration(
                   color: const Color(0xFF141414),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.04),
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -391,7 +572,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                       child: const Icon(
                         Icons.fitness_center_rounded,
                         color: Color(0xFFFF9700),
-                        size: 18,
+                        size: 16,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -400,7 +581,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            exercise['name'],
+                            config.exerciseName,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 14,
@@ -409,7 +590,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            exercise['muscle'],
+                            '${config.muscleGroup} • Rest: ${config.restSeconds}s',
                             style: const TextStyle(
                               color: Colors.white38,
                               fontSize: 11,
@@ -420,19 +601,19 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+                        horizontal: 8,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C2E),
+                        color: const Color(0xFF252528),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        '${exercise['sets']} × ${exercise['reps']}',
+                        '${config.targetSets} × ${config.minReps}-${config.maxReps}',
                         style: const TextStyle(
                           color: Color(0xFFFF9700),
                           fontWeight: FontWeight.bold,
-                          fontSize: 12,
+                          fontSize: 11,
                         ),
                       ),
                     ),
@@ -442,36 +623,32 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
             }),
 
             const SizedBox(height: 8),
-            // Tasto rapido Avvia Allenamento in fondo alla card aperta
+
+            // Tasto Rapido Inizia Allenamento
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Avvio sessione: ${routine['name']}'),
-                      backgroundColor: const Color(0xFFFF9700),
-                    ),
-                  );
-                },
+              height: 46,
+              child: ElevatedButton.icon(
+                onPressed: () => _startWorkout(routine),
                 icon: const Icon(
                   Icons.flash_on_rounded,
-                  color: Color(0xFFFF9700),
+                  color: Colors.white,
                   size: 18,
                 ),
                 label: const Text(
                   'Inizia Questo Allenamento',
                   style: TextStyle(
-                    color: Color(0xFFFF9700),
+                    color: Colors.white,
                     fontWeight: FontWeight.bold,
+                    fontSize: 14,
                   ),
                 ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFFF9700), width: 1.2),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF9700),
+                  elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
             ),
@@ -509,9 +686,9 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
             color: Colors.white.withValues(alpha: 0.15),
             size: 64,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           const Text(
-            'Nessuna scheda creata',
+            'Nessuna scheda trovata',
             style: TextStyle(
               color: Colors.white70,
               fontSize: 16,
@@ -519,407 +696,78 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Crea la tua prima routine per pianificare gli split.',
-            style: TextStyle(color: Colors.white38, fontSize: 13),
+          Text(
+            _selectedSplitFilter == 'Tutti'
+                ? 'Non hai ancora programmato alcuna routine.\nPremi "+ Nuova" per creare la prima scheda.'
+                : 'Nessuna scheda configurata per lo split "$_selectedSplitFilter".',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white38, fontSize: 12),
           ),
         ],
       ),
     );
   }
 
-  void _deleteRoutine(int index) {
-    setState(() {
-      _routines.removeAt(index);
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Scheda eliminata'),
-        backgroundColor: Colors.redAccent,
+  // --- AZIONI E DIALOG ---
+  void _openCreateRoutine({RoutineTemplate? routineToEdit}) async {
+    if (widget.isar == null) return;
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => CreateRoutineScreen(
+              isar: widget.isar!,
+              existingRoutine: routineToEdit,
+            ),
       ),
     );
+
+    if (result == true) {
+      _fetchRoutines(showSpinner: false);
+    }
   }
 
-  // --- MODALE DI CREAZIONE / MODIFICA SCHEDA ---
-  void _openRoutineEditor({Map<String, dynamic>? existingRoutine, int? index}) {
-    final TextEditingController nameController = TextEditingController(
-      text: existingRoutine?['name'] ?? '',
+  Future<void> _confirmDeleteRoutine(RoutineTemplate routine) async {
+    final confirm = await AppDialog.show(
+      context,
+      type: AppDialogType.warning,
+      title: 'Elimina Scheda',
+      message:
+          'Sei sicuro di voler eliminare definitivamente "${routine.name}"? L\'operazione non è reversibile.',
+      primaryButtonText: 'Elimina',
+      secondaryButtonText: 'Annulla',
     );
-    final TextEditingController notesController = TextEditingController(
-      text: existingRoutine?['notes'] ?? '',
-    );
 
-    List<Map<String, dynamic>> tempExercises =
-        existingRoutine != null
-            ? List<Map<String, dynamic>>.from(
-              (existingRoutine['exercises'] as List).map(
-                (e) => Map<String, dynamic>.from(e),
-              ),
-            )
-            : [];
+    if (confirm == true && widget.isar != null) {
+      await widget.isar!.writeTxn(() async {
+        await widget.isar!.routineTemplates.delete(routine.id);
+      });
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Container(
-              padding: EdgeInsets.only(
-                top: 16,
-                left: 18,
-                right: 18,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              height: MediaQuery.of(context).size.height * 0.85,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Maniglia superiore
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
+      if (!mounted) return;
 
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        existingRoutine == null
-                            ? 'Nuova Scheda'
-                            : 'Modifica Scheda',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white54),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Nome Scheda
-                  TextField(
-                    controller: nameController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Nome Scheda (es. Push Day, Upper A)',
-                      labelStyle: const TextStyle(color: Colors.white54),
-                      filled: true,
-                      fillColor: const Color(0xFF141414),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Note Coach
-                  TextField(
-                    controller: notesController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Note o Focus del Mesociclo (Opzionale)',
-                      labelStyle: const TextStyle(color: Colors.white54),
-                      filled: true,
-                      fillColor: const Color(0xFF141414),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Sezione Esercizi
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Esercizi Inclusi',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () {
-                          // Dialog aggiunta rapida esercizio
-                          _showAddExercisePicker(
-                            onAdd: (newEx) {
-                              setModalState(() {
-                                tempExercises.add(newEx);
-                              });
-                            },
-                          );
-                        },
-                        icon: const Icon(
-                          Icons.add,
-                          color: Color(0xFFFF9700),
-                          size: 18,
-                        ),
-                        label: const Text(
-                          'Aggiungi',
-                          style: TextStyle(
-                            color: Color(0xFFFF9700),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Lista Riordinabile degli Esercizi
-                  Expanded(
-                    child:
-                        tempExercises.isEmpty
-                            ? Center(
-                              child: Text(
-                                'Nessun esercizio inserito.\nTocca "+ Aggiungi" per selezionarne uno.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.3),
-                                  fontSize: 13,
-                                ),
-                              ),
-                            )
-                            : ReorderableListView.builder(
-                              physics: const BouncingScrollPhysics(),
-                              itemCount: tempExercises.length,
-                              onReorder: (oldIdx, newIdx) {
-                                setModalState(() {
-                                  if (newIdx > oldIdx) newIdx -= 1;
-                                  final item = tempExercises.removeAt(oldIdx);
-                                  tempExercises.insert(newIdx, item);
-                                });
-                              },
-                              itemBuilder: (context, exIdx) {
-                                final ex = tempExercises[exIdx];
-                                return Container(
-                                  key: ValueKey(ex['name'] + exIdx.toString()),
-                                  margin: const EdgeInsets.only(bottom: 8),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF141414),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: Colors.white12),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.drag_handle_rounded,
-                                        color: Colors.white30,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              ex['name'],
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            Text(
-                                              '${ex['muscle']} • ${ex['sets']} serie × ${ex['reps']}',
-                                              style: const TextStyle(
-                                                color: Colors.white54,
-                                                fontSize: 11,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.remove_circle_outline,
-                                          color: Colors.redAccent,
-                                          size: 20,
-                                        ),
-                                        onPressed: () {
-                                          setModalState(() {
-                                            tempExercises.removeAt(exIdx);
-                                          });
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  // Tasto Salva Scheda
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        if (nameController.text.trim().isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Inserisci un nome per la scheda'),
-                              backgroundColor: Colors.redAccent,
-                            ),
-                          );
-                          return;
-                        }
-
-                        setState(() {
-                          final newRoutineData = {
-                            'id':
-                                existingRoutine?['id'] ??
-                                DateTime.now().millisecondsSinceEpoch,
-                            'name': nameController.text.trim(),
-                            'notes': notesController.text.trim(),
-                            'exercises': tempExercises,
-                          };
-
-                          if (index != null) {
-                            _routines[index] = newRoutineData;
-                          } else {
-                            _routines.add(newRoutineData);
-                          }
-                        });
-
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF9700),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: const Text(
-                        'Salva Scheda',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
+      AppDialog.show(
+        context,
+        type: AppDialogType.info,
+        title: 'Scheda Rimossa',
+        message: 'La routine è stata eliminata dal database.',
+        primaryButtonText: 'OK',
+      );
+    }
   }
 
-  // Selettore rapido con catalogo per gruppi muscolari
-  void _showAddExercisePicker({required Function(Map<String, dynamic>) onAdd}) {
-    final List<Map<String, dynamic>> catalog = [
-      {
-        'name': 'Panca Piana Bilanciere',
-        'muscle': 'Chest',
-        'sets': 4,
-        'reps': '6-8',
-      },
-      {
-        'name': 'Spinte Manubri Inclinata',
-        'muscle': 'Chest',
-        'sets': 3,
-        'reps': '8-10',
-      },
-      {'name': 'Croci ai Cavi', 'muscle': 'Chest', 'sets': 3, 'reps': '12'},
-      {
-        'name': 'Trazioni alla Sbarra',
-        'muscle': 'Back',
-        'sets': 4,
-        'reps': '6-8',
-      },
-      {'name': 'Rematore Bilanciere', 'muscle': 'Back', 'sets': 4, 'reps': '8'},
-      {'name': 'Lat Machine Avanti', 'muscle': 'Back', 'sets': 3, 'reps': '10'},
-      {'name': 'Squat Bilanciere', 'muscle': 'Legs', 'sets': 4, 'reps': '6'},
-      {'name': 'Leg Press 45°', 'muscle': 'Legs', 'sets': 3, 'reps': '10'},
-      {
-        'name': 'Leg Curl Flessioni',
-        'muscle': 'Hamstrings',
-        'sets': 4,
-        'reps': '10-12',
-      },
-      {'name': 'Military Press', 'muscle': 'Shoulders', 'sets': 4, 'reps': '8'},
-      {
-        'name': 'Alzate Laterali Manubri',
-        'muscle': 'Shoulders',
-        'sets': 4,
-        'reps': '12-15',
-      },
-      {
-        'name': 'Curl Bilanciere Sagomato',
-        'muscle': 'Biceps',
-        'sets': 4,
-        'reps': '10',
-      },
-      {'name': 'French Press', 'muscle': 'Triceps', 'sets': 4, 'reps': '10'},
-    ];
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (ctx) {
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-          itemCount: catalog.length,
-          itemBuilder: (context, i) {
-            final item = catalog[i];
-            return ListTile(
-              leading: const Icon(
-                Icons.add_circle_outline,
-                color: Color(0xFFFF9700),
-              ),
-              title: Text(
-                item['name'],
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              subtitle: Text(
-                item['muscle'],
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-              onTap: () {
-                onAdd(item);
-                Navigator.pop(ctx);
-              },
-            );
-          },
-        );
+  void _startWorkout(RoutineTemplate routine) {
+    HapticFeedback.mediumImpact();
+    AppDialog.show(
+      context,
+      type: AppDialogType.success,
+      title: 'Pronto per la Sessione?',
+      message:
+          'Stai per avviare la scheda "${routine.name}". Verranno caricati automaticamente i target di serie e recupero impostati.',
+      primaryButtonText: 'Inizia Ora',
+      secondaryButtonText: 'Annulla',
+      onPrimaryPressed: () {
+        // Navigazione verso il motore d'allenamento
       },
     );
   }

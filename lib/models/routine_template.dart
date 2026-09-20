@@ -1,5 +1,5 @@
 import 'package:isar/isar.dart';
-import 'exercise.dart';
+import 'routine_item.dart';
 
 part 'routine_template.g.dart';
 
@@ -9,6 +9,7 @@ class RoutineTemplate {
 
   late String name;
   String? notes;
+  String macroSplit = 'Push'; // Push, Pull, Legs, Upper, Lower, Full Body
 
-  final exercises = IsarLinks<Exercise>();
+  List<RoutineExerciseConfig> exercises = [];
 }

@@ -17,13 +17,24 @@ const RoutineTemplateSchema = CollectionSchema(
   name: r'RoutineTemplate',
   id: -4240360092458736979,
   properties: {
-    r'name': PropertySchema(
+    r'exercises': PropertySchema(
       id: 0,
+      name: r'exercises',
+      type: IsarType.objectList,
+      target: r'RoutineExerciseConfig',
+    ),
+    r'macroSplit': PropertySchema(
+      id: 1,
+      name: r'macroSplit',
+      type: IsarType.string,
+    ),
+    r'name': PropertySchema(
+      id: 2,
       name: r'name',
       type: IsarType.string,
     ),
     r'notes': PropertySchema(
-      id: 1,
+      id: 3,
       name: r'notes',
       type: IsarType.string,
     )
@@ -34,15 +45,8 @@ const RoutineTemplateSchema = CollectionSchema(
   deserializeProp: _routineTemplateDeserializeProp,
   idName: r'id',
   indexes: {},
-  links: {
-    r'exercises': LinkSchema(
-      id: 3184437338279029686,
-      name: r'exercises',
-      target: r'Exercise',
-      single: false,
-    )
-  },
-  embeddedSchemas: {},
+  links: {},
+  embeddedSchemas: {r'RoutineExerciseConfig': RoutineExerciseConfigSchema},
   getId: _routineTemplateGetId,
   getLinks: _routineTemplateGetLinks,
   attach: _routineTemplateAttach,
@@ -55,6 +59,16 @@ int _routineTemplateEstimateSize(
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
+  bytesCount += 3 + object.exercises.length * 3;
+  {
+    final offsets = allOffsets[RoutineExerciseConfig]!;
+    for (var i = 0; i < object.exercises.length; i++) {
+      final value = object.exercises[i];
+      bytesCount +=
+          RoutineExerciseConfigSchema.estimateSize(value, offsets, allOffsets);
+    }
+  }
+  bytesCount += 3 + object.macroSplit.length * 3;
   bytesCount += 3 + object.name.length * 3;
   {
     final value = object.notes;
@@ -71,8 +85,15 @@ void _routineTemplateSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.name);
-  writer.writeString(offsets[1], object.notes);
+  writer.writeObjectList<RoutineExerciseConfig>(
+    offsets[0],
+    allOffsets,
+    RoutineExerciseConfigSchema.serialize,
+    object.exercises,
+  );
+  writer.writeString(offsets[1], object.macroSplit);
+  writer.writeString(offsets[2], object.name);
+  writer.writeString(offsets[3], object.notes);
 }
 
 RoutineTemplate _routineTemplateDeserialize(
@@ -82,9 +103,17 @@ RoutineTemplate _routineTemplateDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = RoutineTemplate();
+  object.exercises = reader.readObjectList<RoutineExerciseConfig>(
+        offsets[0],
+        RoutineExerciseConfigSchema.deserialize,
+        allOffsets,
+        RoutineExerciseConfig(),
+      ) ??
+      [];
   object.id = id;
-  object.name = reader.readString(offsets[0]);
-  object.notes = reader.readStringOrNull(offsets[1]);
+  object.macroSplit = reader.readString(offsets[1]);
+  object.name = reader.readString(offsets[2]);
+  object.notes = reader.readStringOrNull(offsets[3]);
   return object;
 }
 
@@ -96,8 +125,18 @@ P _routineTemplateDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readString(offset)) as P;
+      return (reader.readObjectList<RoutineExerciseConfig>(
+            offset,
+            RoutineExerciseConfigSchema.deserialize,
+            allOffsets,
+            RoutineExerciseConfig(),
+          ) ??
+          []) as P;
     case 1:
+      return (reader.readString(offset)) as P;
+    case 2:
+      return (reader.readString(offset)) as P;
+    case 3:
       return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -109,14 +148,12 @@ Id _routineTemplateGetId(RoutineTemplate object) {
 }
 
 List<IsarLinkBase<dynamic>> _routineTemplateGetLinks(RoutineTemplate object) {
-  return [object.exercises];
+  return [];
 }
 
 void _routineTemplateAttach(
     IsarCollection<dynamic> col, Id id, RoutineTemplate object) {
   object.id = id;
-  object.exercises
-      .attach(col, col.isar.collection<Exercise>(), r'exercises', id);
 }
 
 extension RoutineTemplateQueryWhereSort
@@ -202,6 +239,95 @@ extension RoutineTemplateQueryWhere
 extension RoutineTemplateQueryFilter
     on QueryBuilder<RoutineTemplate, RoutineTemplate, QFilterCondition> {
   QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      exercisesLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'exercises',
+        length,
+        true,
+        length,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      exercisesIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'exercises',
+        0,
+        true,
+        0,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      exercisesIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'exercises',
+        0,
+        false,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      exercisesLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'exercises',
+        0,
+        true,
+        length,
+        include,
+      );
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      exercisesLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'exercises',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      exercisesLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'exercises',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
       idEqualTo(Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
@@ -253,6 +379,142 @@ extension RoutineTemplateQueryFilter
         includeLower: includeLower,
         upper: upper,
         includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'macroSplit',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'macroSplit',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'macroSplit',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'macroSplit',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'macroSplit',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'macroSplit',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'macroSplit',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'macroSplit',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'macroSplit',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
+      macroSplitIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'macroSplit',
+        value: '',
       ));
     });
   }
@@ -549,74 +811,34 @@ extension RoutineTemplateQueryFilter
 }
 
 extension RoutineTemplateQueryObject
-    on QueryBuilder<RoutineTemplate, RoutineTemplate, QFilterCondition> {}
-
-extension RoutineTemplateQueryLinks
     on QueryBuilder<RoutineTemplate, RoutineTemplate, QFilterCondition> {
   QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
-      exercises(FilterQuery<Exercise> q) {
+      exercisesElement(FilterQuery<RoutineExerciseConfig> q) {
     return QueryBuilder.apply(this, (query) {
-      return query.link(q, r'exercises');
-    });
-  }
-
-  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
-      exercisesLengthEqualTo(int length) {
-    return QueryBuilder.apply(this, (query) {
-      return query.linkLength(r'exercises', length, true, length, true);
-    });
-  }
-
-  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
-      exercisesIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.linkLength(r'exercises', 0, true, 0, true);
-    });
-  }
-
-  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
-      exercisesIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.linkLength(r'exercises', 0, false, 999999, true);
-    });
-  }
-
-  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
-      exercisesLengthLessThan(
-    int length, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.linkLength(r'exercises', 0, true, length, include);
-    });
-  }
-
-  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
-      exercisesLengthGreaterThan(
-    int length, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.linkLength(r'exercises', length, include, 999999, true);
-    });
-  }
-
-  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterFilterCondition>
-      exercisesLengthBetween(
-    int lower,
-    int upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.linkLength(
-          r'exercises', lower, includeLower, upper, includeUpper);
+      return query.object(q, r'exercises');
     });
   }
 }
 
+extension RoutineTemplateQueryLinks
+    on QueryBuilder<RoutineTemplate, RoutineTemplate, QFilterCondition> {}
+
 extension RoutineTemplateQuerySortBy
     on QueryBuilder<RoutineTemplate, RoutineTemplate, QSortBy> {
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterSortBy>
+      sortByMacroSplit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'macroSplit', Sort.asc);
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterSortBy>
+      sortByMacroSplitDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'macroSplit', Sort.desc);
+    });
+  }
+
   QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterSortBy> sortByName() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'name', Sort.asc);
@@ -658,6 +880,20 @@ extension RoutineTemplateQuerySortThenBy
     });
   }
 
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterSortBy>
+      thenByMacroSplit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'macroSplit', Sort.asc);
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterSortBy>
+      thenByMacroSplitDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'macroSplit', Sort.desc);
+    });
+  }
+
   QueryBuilder<RoutineTemplate, RoutineTemplate, QAfterSortBy> thenByName() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'name', Sort.asc);
@@ -687,6 +923,13 @@ extension RoutineTemplateQuerySortThenBy
 
 extension RoutineTemplateQueryWhereDistinct
     on QueryBuilder<RoutineTemplate, RoutineTemplate, QDistinct> {
+  QueryBuilder<RoutineTemplate, RoutineTemplate, QDistinct>
+      distinctByMacroSplit({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'macroSplit', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<RoutineTemplate, RoutineTemplate, QDistinct> distinctByName(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -707,6 +950,19 @@ extension RoutineTemplateQueryProperty
   QueryBuilder<RoutineTemplate, int, QQueryOperations> idProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'id');
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, List<RoutineExerciseConfig>, QQueryOperations>
+      exercisesProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'exercises');
+    });
+  }
+
+  QueryBuilder<RoutineTemplate, String, QQueryOperations> macroSplitProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'macroSplit');
     });
   }
 
