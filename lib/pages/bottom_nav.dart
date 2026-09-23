@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 class FloatingWorkoutNavBar extends StatelessWidget {
@@ -13,7 +14,7 @@ class FloatingWorkoutNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double navBarHeight = 76.0; // Altezza aumentata della barra
+    const double navBarHeight = 76.0;
 
     return SizedBox(
       height: navBarHeight,
@@ -28,68 +29,101 @@ class FloatingWorkoutNavBar extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _buildNavItem('assets/icons/ic_home.svg', 0),
-              _buildNavItem('assets/icons/ic_calendar.svg', 1),
-              const SizedBox(
-                width: 90, // Spazio allargato per la protuberanza centrale
-              ),
-              _buildNavItem('assets/icons/ic_bar_chart.svg', 3),
-              _buildNavItem('assets/icons/ic_user.svg', 4),
+              _buildAnimatedNavItem('assets/icons/ic_home.svg', 0),
+              _buildAnimatedNavItem('assets/icons/ic_calendar.svg', 1),
+              const SizedBox(width: 90), // Spazio per la protuberanza centrale
+              _buildAnimatedNavItem('assets/icons/ic_bar_chart.svg', 3),
+              _buildAnimatedNavItem('assets/icons/ic_user.svg', 4),
             ],
           ),
-          // Pulsante "+" riadattato e centrato
-          // Pulsante "+" riadattato e centrato con ombra
+          // Pulsante centrale "+"
           Positioned(
-            top: -12, // Coordinata allineata con l'altezza e la curva
+            top: -12,
             left: 0,
             right: 0,
-            child: Center(
-              child: GestureDetector(
-                onTap: () => onTap(2),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(
-                          alpha: 0.45,
-                        ), // Ombra di profondità scura
-                        blurRadius: 10,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: const CircleAvatar(
-                    radius: 34,
-                    backgroundColor: Color(0xFFFF9700),
-                    child: Icon(Icons.add, color: Colors.white, size: 42),
-                  ),
-                ),
-              ),
-            ),
+            child: Center(child: _CentralButton(onTap: () => onTap(2))),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildNavItem(String svgPath, int index) {
-    final isSelected = currentIndex == index;
+  Widget _buildAnimatedNavItem(String svgPath, int index) {
+    // Rimappatura indice visivo (3->2, 4->3 per saltare il tasto + centrale)
+    final mappedTarget = index > 2 ? index - 1 : index;
+    final isSelected = currentIndex == mappedTarget;
 
     return GestureDetector(
-      onTap: () => onTap(index),
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap(index);
+      },
       child: Container(
-        color: Colors.transparent, // Aumenta l'area di tocco
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-        child: SvgPicture.asset(
-          svgPath,
-          width: 38, // Icone ingrandite da 32 a 38
-          height: 38,
-          colorFilter: ColorFilter.mode(
-            isSelected
-                ? const Color(0xFFFF9700) // Colore primario attivo
-                : Colors.white70, // Colore disattivato
-            BlendMode.srcIn,
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+        child: AnimatedScale(
+          scale: isSelected ? 1.08 : 0.95,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutQuad,
+          child: AnimatedOpacity(
+            opacity: isSelected ? 1.0 : 0.60,
+            duration: const Duration(milliseconds: 200),
+            child: SvgPicture.asset(
+              svgPath,
+              width: 38,
+              height: 38,
+              colorFilter: ColorFilter.mode(
+                isSelected ? const Color(0xFFFF9700) : Colors.white70,
+                BlendMode.srcIn,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CentralButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _CentralButton({required this.onTap});
+
+  @override
+  State<_CentralButton> createState() => _CentralButtonState();
+}
+
+class _CentralButtonState extends State<_CentralButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) {
+        setState(() => _isPressed = false);
+        widget.onTap();
+      },
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.90 : 1.0,
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutQuad,
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.55),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: const CircleAvatar(
+            radius: 34,
+            backgroundColor: Color(0xFFFF9700),
+            child: Icon(Icons.add, color: Colors.white, size: 42),
           ),
         ),
       ),
@@ -105,7 +139,6 @@ class _NavBarPainter extends CustomPainter {
     const double radius = 28.0;
     final double center = w / 2;
 
-    // --- 1. COSTRUZIONE DEL PERCORSO SUPERIORE (PER L'OMBRA D'ACCENTO VERSO L'ALTO) ---
     final topEdgePath = Path();
     topEdgePath.moveTo(0, radius);
     topEdgePath.quadraticBezierTo(0, 0, radius, 0);
@@ -115,7 +148,6 @@ class _NavBarPainter extends CustomPainter {
     topEdgePath.lineTo(w - radius, 0);
     topEdgePath.quadraticBezierTo(w, 0, w, radius);
 
-    // Ombra/glow superiore scura che proietta verso l'alto lungo il profilo della curva
     final Paint topShadowPaint =
         Paint()
           ..color = Colors.black.withValues(alpha: 0.60)
@@ -123,21 +155,17 @@ class _NavBarPainter extends CustomPainter {
           ..strokeWidth = 5.0
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
 
-    // Eseguiamo un leggero offset negativo sull'asse Y per far risaltare l'ombra verso l'alto
     canvas.save();
     canvas.translate(0, -2.5);
     canvas.drawPath(topEdgePath, topShadowPaint);
     canvas.restore();
 
-    // --- 2. COSTRUZIONE DEL CORPO COMPLETO DELLA CARD ---
     final path = Path();
     path.moveTo(0, radius);
     path.quadraticBezierTo(0, 0, radius, 0);
-
     path.lineTo(center - 75, 0);
     path.cubicTo(center - 38, 0, center - 32, -26, center, -26);
     path.cubicTo(center + 32, -26, center + 38, 0, center + 75, 0);
-
     path.lineTo(w - radius, 0);
     path.quadraticBezierTo(w, 0, w, radius);
     path.lineTo(w, h - radius);
@@ -146,17 +174,14 @@ class _NavBarPainter extends CustomPainter {
     path.quadraticBezierTo(0, h, 0, h - radius);
     path.close();
 
-    // Ombra volumetrica globale del corpo della navbar
     canvas.drawShadow(path, Colors.black, 12.0, true);
 
-    // Riempimento solido del fondo
     final paint =
         Paint()
-          ..color = const Color(0xFF434343)
+          ..color = const Color(0xFF2C2C2E)
           ..style = PaintingStyle.fill;
     canvas.drawPath(path, paint);
 
-    // Rifinitura del bordo superiore (sottile hairline illuminata per stacco netto)
     final Paint borderHighlight =
         Paint()
           ..color = Colors.white.withValues(alpha: 0.08)

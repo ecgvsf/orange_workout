@@ -23,38 +23,54 @@ const RoutineExerciseConfigSchema = Schema(
       name: r'exerciseName',
       type: IsarType.string,
     ),
-    r'isCompound': PropertySchema(
+    r'exerciseType': PropertySchema(
       id: 2,
+      name: r'exerciseType',
+      type: IsarType.byte,
+      enumMap: _RoutineExerciseConfigexerciseTypeEnumValueMap,
+    ),
+    r'isCompound': PropertySchema(
+      id: 3,
       name: r'isCompound',
       type: IsarType.bool,
     ),
     r'maxReps': PropertySchema(
-      id: 3,
+      id: 4,
       name: r'maxReps',
       type: IsarType.long,
     ),
+    r'maxSeconds': PropertySchema(
+      id: 5,
+      name: r'maxSeconds',
+      type: IsarType.long,
+    ),
     r'minReps': PropertySchema(
-      id: 4,
+      id: 6,
       name: r'minReps',
       type: IsarType.long,
     ),
+    r'minSeconds': PropertySchema(
+      id: 7,
+      name: r'minSeconds',
+      type: IsarType.long,
+    ),
     r'muscleGroup': PropertySchema(
-      id: 5,
+      id: 8,
       name: r'muscleGroup',
       type: IsarType.string,
     ),
     r'restSeconds': PropertySchema(
-      id: 6,
+      id: 9,
       name: r'restSeconds',
       type: IsarType.long,
     ),
     r'targetRpe': PropertySchema(
-      id: 7,
+      id: 10,
       name: r'targetRpe',
       type: IsarType.double,
     ),
     r'targetSets': PropertySchema(
-      id: 8,
+      id: 11,
       name: r'targetSets',
       type: IsarType.long,
     )
@@ -84,13 +100,16 @@ void _routineExerciseConfigSerialize(
 ) {
   writer.writeLong(offsets[0], object.exerciseId);
   writer.writeString(offsets[1], object.exerciseName);
-  writer.writeBool(offsets[2], object.isCompound);
-  writer.writeLong(offsets[3], object.maxReps);
-  writer.writeLong(offsets[4], object.minReps);
-  writer.writeString(offsets[5], object.muscleGroup);
-  writer.writeLong(offsets[6], object.restSeconds);
-  writer.writeDouble(offsets[7], object.targetRpe);
-  writer.writeLong(offsets[8], object.targetSets);
+  writer.writeByte(offsets[2], object.exerciseType.index);
+  writer.writeBool(offsets[3], object.isCompound);
+  writer.writeLong(offsets[4], object.maxReps);
+  writer.writeLong(offsets[5], object.maxSeconds);
+  writer.writeLong(offsets[6], object.minReps);
+  writer.writeLong(offsets[7], object.minSeconds);
+  writer.writeString(offsets[8], object.muscleGroup);
+  writer.writeLong(offsets[9], object.restSeconds);
+  writer.writeDouble(offsets[10], object.targetRpe);
+  writer.writeLong(offsets[11], object.targetSets);
 }
 
 RoutineExerciseConfig _routineExerciseConfigDeserialize(
@@ -102,13 +121,18 @@ RoutineExerciseConfig _routineExerciseConfigDeserialize(
   final object = RoutineExerciseConfig();
   object.exerciseId = reader.readLong(offsets[0]);
   object.exerciseName = reader.readString(offsets[1]);
-  object.isCompound = reader.readBool(offsets[2]);
-  object.maxReps = reader.readLong(offsets[3]);
-  object.minReps = reader.readLong(offsets[4]);
-  object.muscleGroup = reader.readString(offsets[5]);
-  object.restSeconds = reader.readLong(offsets[6]);
-  object.targetRpe = reader.readDouble(offsets[7]);
-  object.targetSets = reader.readLong(offsets[8]);
+  object.exerciseType = _RoutineExerciseConfigexerciseTypeValueEnumMap[
+          reader.readByteOrNull(offsets[2])] ??
+      ExerciseType.reps;
+  object.isCompound = reader.readBool(offsets[3]);
+  object.maxReps = reader.readLong(offsets[4]);
+  object.maxSeconds = reader.readLong(offsets[5]);
+  object.minReps = reader.readLong(offsets[6]);
+  object.minSeconds = reader.readLong(offsets[7]);
+  object.muscleGroup = reader.readString(offsets[8]);
+  object.restSeconds = reader.readLong(offsets[9]);
+  object.targetRpe = reader.readDouble(offsets[10]);
+  object.targetSets = reader.readLong(offsets[11]);
   return object;
 }
 
@@ -124,23 +148,40 @@ P _routineExerciseConfigDeserializeProp<P>(
     case 1:
       return (reader.readString(offset)) as P;
     case 2:
-      return (reader.readBool(offset)) as P;
+      return (_RoutineExerciseConfigexerciseTypeValueEnumMap[
+              reader.readByteOrNull(offset)] ??
+          ExerciseType.reps) as P;
     case 3:
-      return (reader.readLong(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 4:
       return (reader.readLong(offset)) as P;
     case 5:
-      return (reader.readString(offset)) as P;
+      return (reader.readLong(offset)) as P;
     case 6:
       return (reader.readLong(offset)) as P;
     case 7:
-      return (reader.readDouble(offset)) as P;
+      return (reader.readLong(offset)) as P;
     case 8:
+      return (reader.readString(offset)) as P;
+    case 9:
+      return (reader.readLong(offset)) as P;
+    case 10:
+      return (reader.readDouble(offset)) as P;
+    case 11:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
 }
+
+const _RoutineExerciseConfigexerciseTypeEnumValueMap = {
+  'reps': 0,
+  'time': 1,
+};
+const _RoutineExerciseConfigexerciseTypeValueEnumMap = {
+  0: ExerciseType.reps,
+  1: ExerciseType.time,
+};
 
 extension RoutineExerciseConfigQueryFilter on QueryBuilder<
     RoutineExerciseConfig, RoutineExerciseConfig, QFilterCondition> {
@@ -339,6 +380,62 @@ extension RoutineExerciseConfigQueryFilter on QueryBuilder<
   }
 
   QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> exerciseTypeEqualTo(ExerciseType value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'exerciseType',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> exerciseTypeGreaterThan(
+    ExerciseType value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'exerciseType',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> exerciseTypeLessThan(
+    ExerciseType value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'exerciseType',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> exerciseTypeBetween(
+    ExerciseType lower,
+    ExerciseType upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'exerciseType',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
       QAfterFilterCondition> isCompoundEqualTo(bool value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
@@ -405,6 +502,62 @@ extension RoutineExerciseConfigQueryFilter on QueryBuilder<
   }
 
   QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> maxSecondsEqualTo(int value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'maxSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> maxSecondsGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'maxSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> maxSecondsLessThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'maxSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> maxSecondsBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'maxSeconds',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
       QAfterFilterCondition> minRepsEqualTo(int value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
@@ -452,6 +605,62 @@ extension RoutineExerciseConfigQueryFilter on QueryBuilder<
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.between(
         property: r'minReps',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> minSecondsEqualTo(int value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'minSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> minSecondsGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'minSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> minSecondsLessThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'minSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<RoutineExerciseConfig, RoutineExerciseConfig,
+      QAfterFilterCondition> minSecondsBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'minSeconds',
         lower: lower,
         includeLower: includeLower,
         upper: upper,

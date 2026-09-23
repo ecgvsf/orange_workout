@@ -1,5 +1,6 @@
 import 'package:isar/isar.dart';
 import '../constants/muscle_group.dart';
+import 'exercise_type.dart'; // Assicurati di importare l'enum
 
 part 'exercise.g.dart';
 
@@ -24,6 +25,10 @@ class Exercise {
 
   /// Percorso assoluto locale dell'immagine salvata su dispositivo
   String? imagePath;
+
+  /// Tipo di esercizio: a ripetizioni o a tempo
+  @enumerated
+  ExerciseType exerciseType = ExerciseType.reps;
 
   // Getter tipizzati comodi
   @ignore

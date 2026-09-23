@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
@@ -8,10 +10,11 @@ import '../models/session.dart';
 import '../models/workout_set.dart';
 import '../models/exercise.dart';
 
-import '../widgets/volume_trend_card.dart';
-import '../widgets/one_rm_progression_chart_card.dart';
-import '../widgets/muscle_split_progress_card.dart';
-import '../widgets/exercise_session_data_card.dart';
+import '../widgets/stats/volume_trend_card.dart';
+import '../widgets/stats/one_rm_progression_chart_card.dart';
+import '../widgets/stats/exercise_session_data_card.dart';
+
+import '../utils/weight_converter.dart';
 
 class StatsScreen extends StatefulWidget {
   final Isar? isar;
@@ -23,9 +26,15 @@ class StatsScreen extends StatefulWidget {
 }
 
 class _StatsScreenState extends State<StatsScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   final ScrollController _scrollController = ScrollController();
   double _topScrollOffset = 0.0;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  StreamSubscription? _sessionSub;
+  StreamSubscription? _setSub;
 
   late final AnimationController _generalAnimController;
   late final Animation<double> _generalCurveAnimation;
@@ -33,14 +42,15 @@ class _StatsScreenState extends State<StatsScreen>
   late final AnimationController _oneRmAnimController;
   late final Animation<double> _oneRmCurveAnimation;
 
-  TimeFilter _selectedFilter = TimeFilter.week;
+  TimeFilter _selectedFilter = TimeFilter.month;
+  String _selectedExercise = 'Panca Piana Bilanciere';
 
-  // Variabili dinamiche per gli esercizi dal DB
+  // Variabile per l'unità di misura globale
+  String _globalWeightUnit = 'kg';
+
   bool _isLoading = true;
   List<CompoundExerciseInfo> _compoundList = [];
-  String? _selectedExercise;
 
-  // Dati Aggregati Reali
   double _totalTonnage = 0.0;
   int _completedSessionsCount = 0;
   double _avgRpe = 0.0;
@@ -77,6 +87,26 @@ class _StatsScreenState extends State<StatsScreen>
     _oneRmAnimController.forward();
 
     _loadExercisesAndStats();
+    if (widget.isar != null) {
+      _sessionSub = widget.isar!.sessions.watchLazy().listen((_) {
+        if (mounted) _loadExercisesAndStats();
+      });
+      _setSub = widget.isar!.workoutSets.watchLazy().listen((_) {
+        if (mounted) _loadExercisesAndStats();
+      });
+    }
+
+    GlobalSettings.weightUnitNotifier.addListener(_onWeightUnitChanged);
+  }
+
+  void _onWeightUnitChanged() {
+    if (mounted) {
+      // Ricarica i dati convertiti con la nuova unità
+      _loadExercisesAndStats();
+      // Riavvia le animazioni per un feedback visivo immediato
+      _generalAnimController.forward(from: 0.0);
+      _oneRmAnimController.forward(from: 0.0);
+    }
   }
 
   void _onScroll() {
@@ -90,10 +120,13 @@ class _StatsScreenState extends State<StatsScreen>
 
   @override
   void dispose() {
+    GlobalSettings.weightUnitNotifier.removeListener(_onWeightUnitChanged);
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _generalAnimController.dispose();
     _oneRmAnimController.dispose();
+    _sessionSub?.cancel();
+    _setSub?.cancel();
     super.dispose();
   }
 
@@ -108,14 +141,12 @@ class _StatsScreenState extends State<StatsScreen>
     _oneRmAnimController.forward(from: 0.0);
   }
 
-  // --- CARICAMENTO ESERCIZI DAL DB E CALCOLO STATS ---
   Future<void> _loadExercisesAndStats() async {
     if (widget.isar == null) {
       setState(() => _isLoading = false);
       return;
     }
 
-    // 1. Estraiamo dal database SOLO gli esercizi multiarticolari (isCompound == true)
     final dbExercises =
         await widget.isar!.exercises.filter().isCompoundEqualTo(true).findAll();
 
@@ -129,11 +160,11 @@ class _StatsScreenState extends State<StatsScreen>
             muscle: '${ex.muscleGroup} • ${ex.equipment ?? "Multiarticolare"}',
             icon: Icons.fitness_center_rounded,
             pr: 0.0,
+            imagePath: ex.imagePath,
           ),
         );
       }
     } else {
-      // Fallback nel caso in cui non ci siano ancora multiarticolari nel DB
       loadedCompounds = const [
         CompoundExerciseInfo(
           name: 'Panca Piana Bilanciere',
@@ -141,29 +172,29 @@ class _StatsScreenState extends State<StatsScreen>
           icon: Icons.fitness_center_rounded,
           pr: 100.0,
         ),
-        CompoundExerciseInfo(
-          name: 'Squat Bilanciere',
-          muscle: 'Gambe • Bilanciere',
-          icon: Icons.accessibility_new_rounded,
-          pr: 140.0,
-        ),
-        CompoundExerciseInfo(
-          name: 'Stacco da Terra',
-          muscle: 'Dorso / Femorali • Bilanciere',
-          icon: Icons.airline_seat_recline_extra_rounded,
-          pr: 160.0,
-        ),
       ];
     }
 
-    if (_selectedExercise == null ||
-        !loadedCompounds.any((e) => e.name == _selectedExercise)) {
+    final prefs = await SharedPreferences.getInstance();
+    final saved1RmExercise = prefs.getString('last_selected_1rm_exercise');
+
+    // Leggiamo l'unità di misura
+    _globalWeightUnit = prefs.getString('global_weight_unit') ?? 'kg';
+
+    if (_selectedExercise != null &&
+        loadedCompounds.any((e) => e.name == _selectedExercise)) {
+    } else if (saved1RmExercise != null &&
+        loadedCompounds.any((e) => e.name == saved1RmExercise)) {
+      _selectedExercise = saved1RmExercise;
+    } else {
       _selectedExercise = loadedCompounds.first.name;
     }
 
-    setState(() {
-      _compoundList = loadedCompounds;
-    });
+    if (mounted) {
+      setState(() {
+        _compoundList = loadedCompounds;
+      });
+    }
 
     await _fetchDatabaseStats();
   }
@@ -244,8 +275,13 @@ class _StatsScreenState extends State<StatsScreen>
     };
 
     for (final s in allSets) {
-      final double weight = s.weight;
-      final int reps = s.reps;
+      // CONVERSIONE IN LBS SE NECESSARIA (prima dei calcoli!)
+      double weight = s.weight;
+      if (_globalWeightUnit == 'lbs') {
+        weight *= 2.20462;
+      }
+
+      final int reps = s.reps ?? 1;
       final int? rpe = s.rpe;
       final bool isWarmup = s.isWarmup;
 
@@ -298,7 +334,9 @@ class _StatsScreenState extends State<StatsScreen>
               'name': exName,
               'sets': 1,
               'reps': '$reps',
-              'avgWeight': weight,
+              'avgWeight': double.parse(
+                weight.toStringAsFixed(1),
+              ), // Mostra lbs o kg
             });
           }
         }
@@ -362,7 +400,6 @@ class _StatsScreenState extends State<StatsScreen>
     }
   }
 
-  // --- KPI CARDS SINTETICI ---
   Widget _buildKpiGrid() {
     String tonnageVal;
     if (_totalTonnage >= 1000000) {
@@ -381,7 +418,7 @@ class _StatsScreenState extends State<StatsScreen>
               _buildMetricCard(
                 title: 'Tonnellaggio',
                 value: tonnageVal,
-                unit: 'kg',
+                unit: _globalWeightUnit,
                 icon: Icons.fitness_center_rounded,
                 iconColor: const Color(0xFFFF9700),
                 variation: 'Dati reali',
@@ -414,7 +451,7 @@ class _StatsScreenState extends State<StatsScreen>
               _buildMetricCard(
                 title: 'Densità',
                 value: _density > 0 ? _density.toStringAsFixed(0) : '-',
-                unit: 'kg/min',
+                unit: '$_globalWeightUnit/min',
                 icon: Icons.timer_outlined,
                 iconColor: const Color(0xFFE65100),
                 variation: 'Volume / Tempo',
@@ -488,11 +525,10 @@ class _StatsScreenState extends State<StatsScreen>
     );
   }
 
-  // --- SELETTORE TEMPORALE FLUIDO ---
   Widget _buildTimeFilterSelector() {
-    Alignment pillAlignment = Alignment.centerLeft;
-    if (_selectedFilter == TimeFilter.month) {
-      pillAlignment = Alignment.center;
+    Alignment pillAlignment = Alignment.center;
+    if (_selectedFilter == TimeFilter.week) {
+      pillAlignment = Alignment.centerLeft;
     } else if (_selectedFilter == TimeFilter.year) {
       pillAlignment = Alignment.centerRight;
     }
@@ -571,6 +607,7 @@ class _StatsScreenState extends State<StatsScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final double topStartOpacity = (1.0 - (_topScrollOffset / 35.0)).clamp(
       0.0,
       1.0,
@@ -615,103 +652,357 @@ class _StatsScreenState extends State<StatsScreen>
               ),
             ),
             Expanded(
-              child:
-                  _isLoading
-                      ? const Center(
-                        child: CircularProgressIndicator(
-                          color: Color(0xFFFF9700),
+              child: ShaderMask(
+                shaderCallback: (Rect bounds) {
+                  return LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: topStartOpacity),
+                      Colors.black,
+                      Colors.black,
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.05, 0.93, 1.0],
+                  ).createShader(bounds);
+                },
+                blendMode: BlendMode.dstIn,
+                child: RefreshIndicator(
+                  color: const Color(0xFFFF9700),
+                  backgroundColor: const Color(0xFF1E1E1E),
+                  onRefresh: () async {
+                    HapticFeedback.lightImpact();
+                    await _loadExercisesAndStats();
+                    if (_scrollController.hasClients) {
+                      _scrollController.jumpTo(0.0);
+                    }
+                    _generalAnimController.forward(from: 0.0);
+                    _oneRmAnimController.forward(from: 0.0);
+                  },
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    physics: const ClampingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 10.0,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildKpiGrid(),
+                        const SizedBox(height: 24),
+                        VolumeTrendCard(
+                          data:
+                              _volumeChartData.isEmpty
+                                  ? [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                                  : _volumeChartData,
+                          labels:
+                              _volumeChartLabels.isEmpty
+                                  ? [
+                                    'Lun',
+                                    'Mar',
+                                    'Mer',
+                                    'Gio',
+                                    'Ven',
+                                    'Sab',
+                                    'Dom',
+                                  ]
+                                  : _volumeChartLabels,
+                          animation: _generalCurveAnimation,
+                          weightUnit: _globalWeightUnit, // <-- Passato qui
                         ),
-                      )
-                      : Padding(
-                        padding: EdgeInsets.only(bottom: cutOffBottom),
-                        child: ShaderMask(
-                          shaderCallback: (Rect bounds) {
-                            return LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.black.withValues(alpha: topStartOpacity),
-                                Colors.black,
-                                Colors.black,
-                              ],
-                              stops: const [0.0, 0.04, 1.0],
-                            ).createShader(bounds);
+                        const SizedBox(height: 24),
+                        OneRmProgressionCard(
+                          isar: widget.isar,
+                          compoundList: _compoundList,
+                          selectedExercise: _selectedExercise,
+                          filter: _selectedFilter,
+                          animation: _oneRmCurveAnimation,
+                          onExerciseChanged: (newExercise) async {
+                            setState(() => _selectedExercise = newExercise);
+                            _oneRmAnimController.forward(from: 0.0);
+
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString(
+                              'last_selected_1rm_exercise',
+                              newExercise,
+                            );
                           },
-                          blendMode: BlendMode.dstIn,
-                          child: SingleChildScrollView(
-                            controller: _scrollController,
-                            physics: const BouncingScrollPhysics(),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16.0,
-                              vertical: 8.0,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildKpiGrid(),
-                                const SizedBox(height: 24),
-
-                                VolumeTrendCard(
-                                  data:
-                                      _volumeChartData.isEmpty
-                                          ? [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-                                          : _volumeChartData,
-                                  labels:
-                                      _volumeChartLabels.isEmpty
-                                          ? [
-                                            'Lun',
-                                            'Mar',
-                                            'Mer',
-                                            'Gio',
-                                            'Ven',
-                                            'Sab',
-                                            'Dom',
-                                          ]
-                                          : _volumeChartLabels,
-                                  animation: _generalCurveAnimation,
-                                ),
-                                const SizedBox(height: 24),
-
-                                // Passiamo gli esercizi reali presi da Isar alla card 1RM
-                                if (_compoundList.isNotEmpty &&
-                                    _selectedExercise != null)
-                                  OneRmProgressionCard(
-                                    isar: widget.isar,
-                                    compoundList: _compoundList,
-                                    selectedExercise: _selectedExercise!,
-                                    filter: _selectedFilter,
-                                    animation: _oneRmCurveAnimation,
-                                    onExerciseChanged: (newExercise) {
-                                      setState(
-                                        () => _selectedExercise = newExercise,
-                                      );
-                                      _oneRmAnimController.forward(from: 0.0);
-                                    },
-                                  ),
-                                const SizedBox(height: 24),
-
-                                // Passiamo l'istanza Isar anche alla card di sovraccarico generale
-                                ExerciseProgressCard(
-                                  isar: widget.isar,
-                                  filter: _selectedFilter,
-                                ),
-                                const SizedBox(height: 24),
-
-                                MuscleSplitProgressCard(
-                                  muscleData: _muscleData,
-                                  animation: _generalCurveAnimation,
-                                ),
-
-                                const SizedBox(height: 65),
-                              ],
-                            ),
-                          ),
                         ),
-                      ),
+                        const SizedBox(height: 24),
+                        ExerciseProgressCard(
+                          isar: widget.isar,
+                          filter: _selectedFilter,
+                        ),
+                        const SizedBox(height: 24),
+                        _buildMuscleSplitProgressCard(),
+                        const SizedBox(height: 110),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMuscleSplitProgressCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Hard Sets per Gruppo',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                'Tocca per dettagli',
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ..._muscleData.map((item) {
+            final int sets = item['sets'];
+            final int target = item['target'];
+            final double percent = (sets / target).clamp(0.0, 1.0);
+            final bool completed = sets >= target;
+
+            return InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _showMuscleExercisesDialog(item),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 7.0,
+                  horizontal: 4.0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              item['muscle'],
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.info_outline_rounded,
+                              color: Colors.white24,
+                              size: 13,
+                            ),
+                          ],
+                        ),
+                        Text(
+                          '$sets / $target set ${completed ? '✓' : ''}',
+                          style: TextStyle(
+                            color:
+                                completed
+                                    ? const Color(0xFFFF9700)
+                                    : Colors.white54,
+                            fontSize: 12,
+                            fontWeight:
+                                completed ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: AnimatedBuilder(
+                        animation: _generalCurveAnimation,
+                        builder: (context, child) {
+                          return LinearProgressIndicator(
+                            value: percent * _generalCurveAnimation.value,
+                            minHeight: 8,
+                            backgroundColor: const Color(0xFF141414),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              item['color'] as Color,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  void _showMuscleExercisesDialog(Map<String, dynamic> muscleItem) {
+    HapticFeedback.lightImpact();
+    final List<Map<String, dynamic>> exercises =
+        (muscleItem['exercises'] as List).cast<Map<String, dynamic>>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFF191919),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: const BorderSide(color: Color(0xFFFF9700), width: 1.5),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          muscleItem['muscle'] as String,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${muscleItem['sets']} serie efficaci (RPE ≥ 8)',
+                          style: const TextStyle(
+                            color: Color(0xFFFF9700),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white38,
+                        size: 20,
+                      ),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const Divider(color: Colors.white12, height: 1),
+                const SizedBox(height: 14),
+                const Text(
+                  'Esercizi che hanno generato lo stimolo:',
+                  style: TextStyle(color: Colors.white54, fontSize: 11),
+                ),
+                const SizedBox(height: 10),
+                ...exercises.map((ex) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF141414),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFFFF9700,
+                            ).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.fitness_center_rounded,
+                            color: Color(0xFFFF9700),
+                            size: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                ex['name'] as String,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Media: ${ex['avgWeight']} $_globalWeightUnit', // Unità dinamica
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2C2C2E),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${ex['sets']} × ${ex['reps']}',
+                            style: const TextStyle(
+                              color: Color(0xFFFF9700),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

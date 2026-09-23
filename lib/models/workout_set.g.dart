@@ -17,23 +17,28 @@ const WorkoutSetSchema = CollectionSchema(
   name: r'WorkoutSet',
   id: -5974587475565306185,
   properties: {
-    r'isWarmup': PropertySchema(
+    r'holdSeconds': PropertySchema(
       id: 0,
+      name: r'holdSeconds',
+      type: IsarType.long,
+    ),
+    r'isWarmup': PropertySchema(
+      id: 1,
       name: r'isWarmup',
       type: IsarType.bool,
     ),
     r'reps': PropertySchema(
-      id: 1,
+      id: 2,
       name: r'reps',
       type: IsarType.long,
     ),
     r'rpe': PropertySchema(
-      id: 2,
+      id: 3,
       name: r'rpe',
       type: IsarType.long,
     ),
     r'weight': PropertySchema(
-      id: 3,
+      id: 4,
       name: r'weight',
       type: IsarType.double,
     )
@@ -80,10 +85,11 @@ void _workoutSetSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeBool(offsets[0], object.isWarmup);
-  writer.writeLong(offsets[1], object.reps);
-  writer.writeLong(offsets[2], object.rpe);
-  writer.writeDouble(offsets[3], object.weight);
+  writer.writeLong(offsets[0], object.holdSeconds);
+  writer.writeBool(offsets[1], object.isWarmup);
+  writer.writeLong(offsets[2], object.reps);
+  writer.writeLong(offsets[3], object.rpe);
+  writer.writeDouble(offsets[4], object.weight);
 }
 
 WorkoutSet _workoutSetDeserialize(
@@ -93,11 +99,12 @@ WorkoutSet _workoutSetDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = WorkoutSet();
+  object.holdSeconds = reader.readLongOrNull(offsets[0]);
   object.id = id;
-  object.isWarmup = reader.readBool(offsets[0]);
-  object.reps = reader.readLong(offsets[1]);
-  object.rpe = reader.readLongOrNull(offsets[2]);
-  object.weight = reader.readDouble(offsets[3]);
+  object.isWarmup = reader.readBool(offsets[1]);
+  object.reps = reader.readLongOrNull(offsets[2]);
+  object.rpe = reader.readLongOrNull(offsets[3]);
+  object.weight = reader.readDouble(offsets[4]);
   return object;
 }
 
@@ -109,12 +116,14 @@ P _workoutSetDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readBool(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 1:
-      return (reader.readLong(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 2:
       return (reader.readLongOrNull(offset)) as P;
     case 3:
+      return (reader.readLongOrNull(offset)) as P;
+    case 4:
       return (reader.readDouble(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -214,6 +223,80 @@ extension WorkoutSetQueryWhere
 
 extension WorkoutSetQueryFilter
     on QueryBuilder<WorkoutSet, WorkoutSet, QFilterCondition> {
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition>
+      holdSecondsIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'holdSeconds',
+      ));
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition>
+      holdSecondsIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'holdSeconds',
+      ));
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition>
+      holdSecondsEqualTo(int? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'holdSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition>
+      holdSecondsGreaterThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'holdSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition>
+      holdSecondsLessThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'holdSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition>
+      holdSecondsBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'holdSeconds',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
   QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition> idEqualTo(
       Id value) {
     return QueryBuilder.apply(this, (query) {
@@ -277,8 +360,24 @@ extension WorkoutSetQueryFilter
     });
   }
 
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition> repsIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'reps',
+      ));
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition> repsIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'reps',
+      ));
+    });
+  }
+
   QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition> repsEqualTo(
-      int value) {
+      int? value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
         property: r'reps',
@@ -288,7 +387,7 @@ extension WorkoutSetQueryFilter
   }
 
   QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition> repsGreaterThan(
-    int value, {
+    int? value, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
@@ -301,7 +400,7 @@ extension WorkoutSetQueryFilter
   }
 
   QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition> repsLessThan(
-    int value, {
+    int? value, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
@@ -314,8 +413,8 @@ extension WorkoutSetQueryFilter
   }
 
   QueryBuilder<WorkoutSet, WorkoutSet, QAfterFilterCondition> repsBetween(
-    int lower,
-    int upper, {
+    int? lower,
+    int? upper, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
@@ -496,6 +595,18 @@ extension WorkoutSetQueryLinks
 
 extension WorkoutSetQuerySortBy
     on QueryBuilder<WorkoutSet, WorkoutSet, QSortBy> {
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterSortBy> sortByHoldSeconds() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'holdSeconds', Sort.asc);
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterSortBy> sortByHoldSecondsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'holdSeconds', Sort.desc);
+    });
+  }
+
   QueryBuilder<WorkoutSet, WorkoutSet, QAfterSortBy> sortByIsWarmup() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isWarmup', Sort.asc);
@@ -547,6 +658,18 @@ extension WorkoutSetQuerySortBy
 
 extension WorkoutSetQuerySortThenBy
     on QueryBuilder<WorkoutSet, WorkoutSet, QSortThenBy> {
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterSortBy> thenByHoldSeconds() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'holdSeconds', Sort.asc);
+    });
+  }
+
+  QueryBuilder<WorkoutSet, WorkoutSet, QAfterSortBy> thenByHoldSecondsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'holdSeconds', Sort.desc);
+    });
+  }
+
   QueryBuilder<WorkoutSet, WorkoutSet, QAfterSortBy> thenById() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'id', Sort.asc);
@@ -610,6 +733,12 @@ extension WorkoutSetQuerySortThenBy
 
 extension WorkoutSetQueryWhereDistinct
     on QueryBuilder<WorkoutSet, WorkoutSet, QDistinct> {
+  QueryBuilder<WorkoutSet, WorkoutSet, QDistinct> distinctByHoldSeconds() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'holdSeconds');
+    });
+  }
+
   QueryBuilder<WorkoutSet, WorkoutSet, QDistinct> distinctByIsWarmup() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'isWarmup');
@@ -643,13 +772,19 @@ extension WorkoutSetQueryProperty
     });
   }
 
+  QueryBuilder<WorkoutSet, int?, QQueryOperations> holdSecondsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'holdSeconds');
+    });
+  }
+
   QueryBuilder<WorkoutSet, bool, QQueryOperations> isWarmupProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'isWarmup');
     });
   }
 
-  QueryBuilder<WorkoutSet, int, QQueryOperations> repsProperty() {
+  QueryBuilder<WorkoutSet, int?, QQueryOperations> repsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'reps');
     });

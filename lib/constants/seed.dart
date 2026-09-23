@@ -1,257 +1,209 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:isar/isar.dart';
+
 import '../models/exercise.dart';
-import 'muscle_group.dart';
+import '../models/exercise_type.dart';
 
+/// Funzione di seeding iniziale che popola Isar al primo avvio
 Future<void> seedInitialExercises(Isar isar) async {
-  // Controlla se il catalogo esercizi è già popolato nel DB
+  // Evita duplicazioni se il database contiene già degli esercizi
   final int count = await isar.exercises.count();
-  if (count > 0) return; // Se ci sono già dati, non duplica nulla
+  if (count > 0) return;
 
-  final defaultExercises = [
-    // ==========================================
-    // PUSH (Spinta: Petto, Spalle, Tricipiti)
-    // ==========================================
-    Exercise()
-      ..name = 'Panca Piana Bilanciere'
-      ..muscleGroup = MuscleGroup.petto.label
-      ..secondaryMuscles = [
-        MuscleGroup.spalle.label, // Deltoide anteriore
-        MuscleGroup.tricipiti.label, // Estensore del gomito
-      ]
-      ..isCompound = true
-      ..equipment = 'Bilanciere',
+  try {
+    // 1. Carica il file JSON dal bundle degli asset
+    final String jsonContent = await rootBundle.loadString(
+      'assets/data/free.en.json',
+    );
+    final Map<String, dynamic> decoded = json.decode(jsonContent);
 
-    Exercise()
-      ..name = 'Chest Press'
-      ..muscleGroup = MuscleGroup.petto.label
-      ..secondaryMuscles = [
-        MuscleGroup.spalle.label,
-        MuscleGroup.tricipiti.label,
-      ]
-      ..isCompound = true
-      ..equipment = 'Macchinario',
+    final List<dynamic> rawList = decoded['exercises'] ?? [];
+    if (rawList.isEmpty) return;
 
-    Exercise()
-      ..name = 'Chest Press Wide'
-      ..muscleGroup = MuscleGroup.petto.label
-      ..secondaryMuscles = [
-        MuscleGroup.spalle.label,
-        MuscleGroup.tricipiti.label,
-      ]
-      ..isCompound = true
-      ..equipment = 'Macchinario',
+    // 2. Mappatura dei muscoli RepDB verso le etichette usate nella tua app e nell'SVG
+    //    Queste label corrispondono agli svgId della sagoma:
+    //    'chest', 'dorsali', 'deltoidi', 'bicipiti', 'tricipiti',
+    //    'addominali', 'quadricipiti', 'femorali', 'glutei', 'polpacci', 'lombari', 'trapezio'
+    final Map<String, String> muscleMapping = {
+      // Petto
+      'pectoralis_major': 'Petto',
+      'serratus_anterior': 'Petto',
 
-    Exercise()
-      ..name = 'Spinte Manubri Inclinata'
-      ..muscleGroup = MuscleGroup.petto.label
-      ..secondaryMuscles = [
-        MuscleGroup.spalle.label, // Forte attivazione fascio clavicolare
-        MuscleGroup.tricipiti.label,
-      ]
-      ..isCompound =
-          true // Movimento biarticolare (spalla + gomito)
-      ..equipment = 'Manubri',
+      // Spalle
+      'anterior_deltoid': 'Spalle',
+      'lateral_deltoid': 'Spalle',
+      'posterior_deltoid': 'Spalle',
+      'supraspinatus': 'Spalle',
 
-    Exercise()
-      ..name = 'Seated Dips'
-      ..muscleGroup = MuscleGroup.tricipiti.label
-      ..secondaryMuscles = [
-        MuscleGroup.petto.label, // Gran pettorale fascio basso
-        MuscleGroup.spalle.label, // Deltoide anteriore
-      ]
-      ..isCompound = true
-      ..equipment = 'Macchinario',
+      // Braccia
+      'biceps_brachii': 'Bicipiti',
+      'brachialis': 'Bicipiti',
+      'brachioradialis': 'Avambracci',
+      'triceps_brachii': 'Tricipiti',
+      'forearms': 'Avambracci',
+      'forearm_flexors': 'Avambracci',
+      'forearm_extensors': 'Avambracci',
 
-    Exercise()
-      ..name = 'Croci ai Cavi'
-      ..muscleGroup = MuscleGroup.petto.label
-      ..secondaryMuscles =
-          [] // Puro isolamento sternocostale
-      ..isCompound = false
-      ..equipment = 'Cavi',
+      // Schiena e Trapezi
+      'latissimus_dorsi': 'Dorso',
+      'rhomboids': 'Trapezio',
+      'trapezius': 'Trapezio',
+      'erector_spinae': 'Lombari',
+      'quadratus_lumborum': 'Lombari',
 
-    Exercise()
-      ..name = 'Military Press Bilanciere'
-      ..muscleGroup = MuscleGroup.spalle.label
-      ..secondaryMuscles = [
-        MuscleGroup.tricipiti.label, // Estensione gomito lockout
-        MuscleGroup.trapezi.label, // Trapezi e stabilizzatori
-      ]
-      ..isCompound = true
-      ..equipment = 'Bilanciere',
+      // Core / Addome
+      'rectus_abdominis': 'Addome', // Centrali
+      'transverse_abdominis': 'Addome', // Centrali profondi
+      'hip_flexors': 'Addome', // Flessori
+      'obliques': 'Obliqui', // Laterali
+      // Gambe
+      'quadriceps': 'Quadricipiti',
+      'hamstrings': 'Femorali',
+      'gluteus_maximus': 'Glutei',
+      'gluteus_medius': 'Glutei',
+      'abductors': 'abduttori',
+      'adductors': 'adduttori',
+      'gastrocnemius': 'Polpacci',
+      'soleus': 'soleo',
+    };
 
-    Exercise()
-      ..name = 'Shoulder Press'
-      ..muscleGroup = MuscleGroup.spalle.label
-      ..secondaryMuscles = [MuscleGroup.tricipiti.label]
-      ..isCompound =
-          true // Spinta verticale biarticolare
-      ..equipment = 'Macchinario',
+    final Map<String, String> bodyPartFallback = {
+      'chest': 'Petto',
+      'shoulders': 'Spalle',
+      'upper_arms': 'Braccia',
+      'lower_arms': 'Avambracci',
+      'back': 'Dorso',
+      'core': 'Addome',
+      'upper_legs': 'Gambe',
+      'lower_legs': 'Polpacci',
+      'full_body': 'Corpo Libero',
+    };
 
-    Exercise()
-      ..name = 'Alzate Laterali Manubri'
-      ..muscleGroup = MuscleGroup.spalle.label
-      ..secondaryMuscles =
-          [] // Isolamento deltoide laterale
-      ..isCompound = false
-      ..equipment = 'Manubri',
+    // 3. Mappatura attrezzi per renderli leggibili nella UI
+    final Map<String, String> equipmentMapping = {
+      'barbell': 'Bilanciere',
+      'dumbbell': 'Manubri',
+      'kettlebell': 'Kettlebell',
+      'cable': 'Cavi',
+      'machine': 'Macchinario',
+      'chest_press_machine': 'Macchinario',
+      'lat_pulldown_machine': 'Macchinario',
+      'leg_press': 'Macchinario',
+      'leg_extension': 'Macchinario',
+      'leg_curl': 'Macchinario',
+      'smith_machine': 'Multipower',
+      'pull_up_bar': 'Corpo Libero',
+      'dip_station': 'Corpo Libero',
+      'bodyweight_aid': 'Corpo Libero',
+      'resistance_band': 'Elastici',
+      'loop_band': 'Elastici',
+    };
 
-    Exercise()
-      ..name = 'Pushdown Cavo'
-      ..muscleGroup = MuscleGroup.tricipiti.label
-      ..secondaryMuscles =
-          [] // Monoarticolare (estensione pura del gomito)
-      ..isCompound = false
-      ..equipment = 'Cavi',
+    final List<Exercise> exercisesToInsert = [];
 
-    // ==========================================
-    // PULL (Tirata: Dorso, Trapezi, Bicipiti)
-    // ==========================================
-    Exercise()
-      ..name = 'Trazioni alla Sbarra'
-      ..muscleGroup = MuscleGroup.dorso.label
-      ..secondaryMuscles = [
-        MuscleGroup.bicipiti.label, // Flessori del gomito
-        MuscleGroup.trapezi.label, // Romboidi e trapezi medi/bassi
-      ]
-      ..isCompound = true
-      ..equipment = 'Corpo Libero',
+    for (final item in rawList) {
+      if (item is! Map<String, dynamic>) continue;
 
-    Exercise()
-      ..name = 'Rematore'
-      ..muscleGroup = MuscleGroup.dorso.label
-      ..secondaryMuscles = [
-        MuscleGroup.bicipiti.label,
-        MuscleGroup.trapezi.label,
-        MuscleGroup.lombari.label, // Stabilizzazione isometrica
-      ]
-      ..isCompound = true
-      ..equipment = 'Macchinario',
+      final String id = item['id'] ?? '';
 
-    Exercise()
-      ..name = 'Lat Machine Avanti'
-      ..muscleGroup = MuscleGroup.dorso.label
-      ..secondaryMuscles = [
-        MuscleGroup.bicipiti.label,
-        MuscleGroup.trapezi.label,
-      ]
-      ..isCompound =
-          true // Biarticolare (adduzione spalla + flessione gomito)
-      ..equipment = 'Macchinario',
+      // Nome esercizio (privilegia la traduzione se disponibile, altrimenti nome in inglese)
+      final String name =
+          item['name_it'] ??
+          item['name_it_it'] ??
+          item['name'] ??
+          item['name_en'] ??
+          id.replaceAll('-', ' ');
 
-    Exercise()
-      ..name = 'Pulley Basso'
-      ..muscleGroup = MuscleGroup.trapezi.label
-      ..secondaryMuscles = [MuscleGroup.dorso.label, MuscleGroup.bicipiti.label]
-      ..isCompound =
-          true // Spessore dorso con retrazione scapolare
-      ..equipment = 'Cavi',
+      // Estrazione campi dal JSON
+      final String forceType = item['force_type'] ?? '';
+      final String category = item['category'] ?? '';
+      final List<dynamic> tags = item['tags'] ?? [];
 
-    Exercise()
-      ..name = 'Face Pull ai Cavi'
-      ..muscleGroup = MuscleGroup.trapezi.label
-      ..secondaryMuscles = [
-        MuscleGroup.spalle.label, // Deltoide posteriore ed extrarotatori
-      ]
-      ..isCompound = false
-      ..equipment = 'Cavi',
+      // Logica deterministica per gli esercizi a tempo
+      final bool isTimeBased =
+          forceType == 'static' ||
+          category == 'cardio' ||
+          category == 'stretching' ||
+          tags.contains('conditioning');
 
-    Exercise()
-      ..name = 'Scott Curl'
-      ..muscleGroup = MuscleGroup.bicipiti.label
-      ..secondaryMuscles =
-          [] // Isolamento flessori su panca Scott
-      ..isCompound = false
-      ..equipment = 'Macchinario',
+      // Calcola gruppo muscolare primario
+      final List<dynamic> primaryMusclesRaw = item['primary_muscles'] ?? [];
+      String primaryGroup = 'Generale';
 
-    Exercise()
-      ..name = 'Hammer Curl con Manubri'
-      ..muscleGroup = MuscleGroup.bicipiti.label
-      ..secondaryMuscles =
-          [] // Brachioradiale e bicipite brachiale
-      ..isCompound = false
-      ..equipment = 'Manubri',
+      if (primaryMusclesRaw.isNotEmpty) {
+        final firstMuscle = primaryMusclesRaw.first.toString();
+        primaryGroup =
+            muscleMapping[firstMuscle] ??
+            bodyPartFallback[item['body_part']?.toString() ?? ''] ??
+            'Generale';
+      } else if (item['body_part'] != null) {
+        primaryGroup = bodyPartFallback[item['body_part']] ?? 'Generale';
+      }
 
-    // ==========================================
-    // LEGS (Gambe: Quadricipiti, Catena Posteriore, Polpacci)
-    // ==========================================
-    Exercise()
-      ..name = 'Squat con Bilanciere'
-      ..muscleGroup = MuscleGroup.quadricipiti.label
-      ..secondaryMuscles = [
-        MuscleGroup.glutei.label, // Grande gluteo estensore dell'anca
-        MuscleGroup.femorali.label,
-        MuscleGroup.lombari.label,
-      ]
-      ..isCompound = true
-      ..equipment = 'Bilanciere',
+      // Calcola i gruppi muscolari secondari sinergici
+      final List<dynamic> secondaryMusclesRaw = item['secondary_muscles'] ?? [];
+      final Set<String> secondaryGroups = {};
 
-    Exercise()
-      ..name = 'Leg Press 45°'
-      ..muscleGroup = MuscleGroup.quadricipiti.label
-      ..secondaryMuscles = [MuscleGroup.glutei.label]
-      ..isCompound = true
-      ..equipment = 'Macchinario',
+      for (final sec in secondaryMusclesRaw) {
+        final mapped = muscleMapping[sec.toString()];
+        if (mapped != null && mapped != primaryGroup) {
+          secondaryGroups.add(mapped);
+        }
+      }
 
-    Exercise()
-      ..name = 'Leg Extension'
-      ..muscleGroup = MuscleGroup.quadricipiti.label
-      ..secondaryMuscles =
-          [] // Isolamento puro quadricipite
-      ..isCompound = false
-      ..equipment = 'Macchinario',
+      // Meccanica: Multiarticolare vs Isolamento
+      final bool isCompound = item['mechanic'] == 'compound';
 
-    Exercise()
-      ..name = 'Deadlift'
-      ..muscleGroup = MuscleGroup.femorali.label
-      ..secondaryMuscles = [
-        MuscleGroup.glutei.label, // Motore primario di estensione dell'anca
-        MuscleGroup.lombari.label, // Erettori spinali
-        MuscleGroup.trapezi.label, // Trapezi e romboidi isometrici
-        MuscleGroup.quadricipiti.label, // Spinta iniziale a terra
-      ]
-      ..isCompound = true
-      ..equipment = 'Bilanciere',
+      // Attrezzo utilizzato
+      final String rawEquipment = item['equipment']?.toString() ?? '';
+      final String? cleanEquipment =
+          equipmentMapping[rawEquipment] ??
+          (rawEquipment.isNotEmpty
+              ? rawEquipment.replaceAll('_', ' ').toUpperCase()
+              : null);
 
-    Exercise()
-      ..name = 'Leg Curl Seduto'
-      ..muscleGroup = MuscleGroup.femorali.label
-      ..secondaryMuscles =
-          [] // Isolamento flessori del ginocchio
-      ..isCompound = false
-      ..equipment = 'Macchinario',
+      // Risoluzione immagine: verifica se è presente la variante start, main o il nome diretto dell'id
+      // Risoluzione flessibile del path immagine per RepDB
+      String? imagePath;
+      final imagesObj = item['images'];
 
-    Exercise()
-      ..name = 'Calf Machine in Piedi'
-      ..muscleGroup = MuscleGroup.polpacci.label
-      ..secondaryMuscles =
-          [] // Isolamento gastrocnemio
-      ..isCompound = false
-      ..equipment = 'Macchinario',
+      if (imagesObj is Map && imagesObj['flat'] is List) {
+        final List flatList = imagesObj['flat'];
+        if (flatList.isNotEmpty) {
+          // Es. se il JSON indica 'start', cercherà 'id-start.webp'
+          final String frame = flatList.first.toString().replaceAll('_', '-');
+          imagePath = 'assets/images/flat/$id-$frame.webp';
+        }
+      }
 
-    // ==========================================
-    // CORE (Tronco e Addome)
-    // ==========================================
-    Exercise()
-      ..name = 'Plank a Terra'
-      ..muscleGroup = MuscleGroup.addome.label
-      ..secondaryMuscles = [
-        MuscleGroup.spalle.label, // Tenuta isometrica
-      ]
-      ..isCompound = false
-      ..equipment = 'Corpo Libero',
+      // Fallback se non specificato: prova '-start', poi '-main', altrimenti '$id.webp'
+      imagePath ??= 'assets/images/flat/$id-start.webp';
 
-    Exercise()
-      ..name = 'Crunch al Cavo'
-      ..muscleGroup = MuscleGroup.addome.label
-      ..secondaryMuscles =
-          [] // Flessione pura della colonna
-      ..isCompound = false
-      ..equipment = 'Cavi',
-  ];
+      final exercise =
+          Exercise()
+            ..name = name.trim()
+            ..muscleGroup = primaryGroup
+            ..secondaryMuscles = secondaryGroups.toList()
+            ..isCompound = isCompound
+            ..equipment = cleanEquipment
+            ..exerciseType = isTimeBased ? ExerciseType.time : ExerciseType.reps
+            ..imagePath = imagePath;
 
-  // Scrittura batch su Isar
-  await isar.writeTxn(() async {
-    await isar.exercises.putAll(defaultExercises);
-  });
+      exercisesToInsert.add(exercise);
+    }
+
+    // 4. Inserimento batch ad alta velocità in un'unica transazione Isar
+    await isar.writeTxn(() async {
+      await isar.exercises.putAll(exercisesToInsert);
+    });
+
+    debugPrint(
+      'Seeding completato con successo: ${exercisesToInsert.length} esercizi importati.',
+    );
+  } catch (e, stack) {
+    debugPrint('Errore durante il parsing/seeding di free.json: $e');
+    debugPrint(stack.toString());
+  }
 }

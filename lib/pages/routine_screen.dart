@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
 import '../models/routine_template.dart';
+import '../models/exercise.dart';
 import '../pages/create_routine_page.dart';
 import '../widgets/custom_dialog.dart';
+import '../pages/workout_engine_screen.dart';
 
 class RoutinesScreen extends StatefulWidget {
   final Isar? isar;
@@ -16,12 +19,12 @@ class RoutinesScreen extends StatefulWidget {
 }
 
 class _RoutinesScreenState extends State<RoutinesScreen> {
-  // Controller per monitorare lo scorrimento della lista
   final ScrollController _scrollController = ScrollController();
   double _topScrollOffset = 0.0;
 
   StreamSubscription? _routinesSubscription;
   List<RoutineTemplate> _routines = [];
+  Map<String, String?> _exerciseImages = {};
   bool _isLoading = true;
 
   String _selectedSplitFilter = 'Tutti';
@@ -39,14 +42,13 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _fetchRoutines();
+    _fetchRoutinesAndImages();
 
-    // Ascolto in tempo reale delle modifiche nella collection di Isar
     if (widget.isar != null) {
       _routinesSubscription = widget.isar!.routineTemplates.watchLazy().listen((
         _,
       ) {
-        _fetchRoutines(showSpinner: false);
+        _fetchRoutinesAndImages(showSpinner: false);
       });
     }
   }
@@ -68,7 +70,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchRoutines({bool showSpinner = true}) async {
+  Future<void> _fetchRoutinesAndImages({bool showSpinner = true}) async {
     if (widget.isar == null) {
       if (mounted) setState(() => _isLoading = false);
       return;
@@ -80,10 +82,16 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
 
     final data =
         await widget.isar!.routineTemplates.where().sortByName().findAll();
+    final allExercises = await widget.isar!.exercises.where().findAll();
+
+    final Map<String, String?> imageMap = {
+      for (var ex in allExercises) ex.name.trim().toLowerCase(): ex.imagePath,
+    };
 
     if (mounted) {
       setState(() {
         _routines = data;
+        _exerciseImages = imageMap;
         _isLoading = false;
       });
     }
@@ -112,7 +120,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
           children: [
             const SizedBox(height: 8),
 
-            // --- HEADER SUPERIORE ---
+            // HEADER SUPERIORE
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Row(
@@ -194,7 +202,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
             const Divider(color: Color(0xFFFF9700), thickness: 1, height: 1),
             const SizedBox(height: 12),
 
-            // --- FILTRO RAPIDO SPLIT (CHIP SCORREVOLI) ---
+            // FILTRI SPLIT CHIP
             SizedBox(
               height: 36,
               child: ListView.builder(
@@ -245,7 +253,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
 
             const SizedBox(height: 10),
 
-            // --- BODY: LISTA CON FADE DINAMICO SUPERIORE E INFERIORE ---
+            // LISTA SCHEDE CON FADE
             Expanded(
               child:
                   _isLoading
@@ -258,7 +266,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                       ? _buildEmptyState()
                       : Stack(
                         children: [
-                          // 1. LISTA SCORREVOLE DELLE SCHEDE
                           ListView.builder(
                             controller: _scrollController,
                             physics: const BouncingScrollPhysics(),
@@ -274,8 +281,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                               return _buildRoutineCard(routine, index);
                             },
                           ),
-
-                          // 2. SFUMATURA SUPERIORE (Attiva solo allo scroll, zero righe di taglio)
                           Positioned(
                             top: 0,
                             left: 0,
@@ -304,8 +309,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                               ),
                             ),
                           ),
-
-                          // 3. SFUMATURA INFERIORE (Morbida e costante verso il fondo)
                           Positioned(
                             bottom: 0,
                             left: 0,
@@ -337,7 +340,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
     );
   }
 
-  // --- CARD SCHEDA MODERNA & APRIBILE ---
   Widget _buildRoutineCard(RoutineTemplate routine, int index) {
     final exercises = routine.exercises;
     final int totalSets = exercises.fold<int>(
@@ -345,7 +347,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
       (sum, item) => sum + item.targetSets,
     );
 
-    // Stima della durata: serie * tempo recupero medio + 45s esecuzione
     final int totalRestSec = exercises.fold<int>(
       0,
       (sum, item) => sum + (item.targetSets * item.restSeconds),
@@ -357,7 +358,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
-      // Taglia qualsiasi contenuto o alone esattamente lungo la curva a raggio 22
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
@@ -365,7 +365,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
         border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Theme(
-        // Azzeramento totale degli effetti di flash/splash rettangolari al tocco
         data: Theme.of(context).copyWith(
           dividerColor: Colors.transparent,
           splashColor: Colors.transparent,
@@ -546,8 +545,11 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                 ),
               ),
 
-            // Lista Esercizi Programmati
+            // LISTA ESERCIZI CON ANTEPRIMA IMMAGINE
             ...exercises.map((config) {
+              final String? imgPath =
+                  _exerciseImages[config.exerciseName.trim().toLowerCase()];
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.symmetric(
@@ -563,19 +565,24 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                 ),
                 child: Row(
                   children: [
+                    // IMMAGINE ESERCIZIO O FALLBACK MANUBRIO
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
                         color: const Color(0xFFFF9700).withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.06),
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.fitness_center_rounded,
-                        color: Color(0xFFFF9700),
-                        size: 16,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: _buildExerciseThumbnail(imgPath),
                       ),
                     ),
                     const SizedBox(width: 12),
+
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -624,7 +631,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
 
             const SizedBox(height: 8),
 
-            // Tasto Rapido Inizia Allenamento
             SizedBox(
               width: double.infinity,
               height: 46,
@@ -656,6 +662,39 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildExerciseThumbnail(String? path) {
+    const fallback = Icon(
+      Icons.fitness_center_rounded,
+      color: Color(0xFFFF9700),
+      size: 20,
+    );
+
+    if (path == null || path.trim().isEmpty) return fallback;
+
+    if (path.startsWith('assets/')) {
+      final normalized = path
+          .replaceAll('_start.', '-start.')
+          .replaceAll('_peak.', '-peak.')
+          .replaceAll('_main.', '-main.');
+      return Image.asset(
+        normalized,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      );
+    }
+
+    final file = File(path);
+    if (file.existsSync()) {
+      return Image.file(
+        file,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      );
+    }
+
+    return fallback;
   }
 
   Widget _buildBadge(String text, Color bg, Color textCol) {
@@ -708,7 +747,6 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
     );
   }
 
-  // --- AZIONI E DIALOG ---
   void _openCreateRoutine({RoutineTemplate? routineToEdit}) async {
     if (widget.isar == null) return;
 
@@ -724,7 +762,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
     );
 
     if (result == true) {
-      _fetchRoutines(showSpinner: false);
+      _fetchRoutinesAndImages(showSpinner: false);
     }
   }
 
@@ -757,6 +795,8 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
   }
 
   void _startWorkout(RoutineTemplate routine) {
+    if (widget.isar == null) return;
+
     HapticFeedback.mediumImpact();
     AppDialog.show(
       context,
@@ -767,7 +807,21 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
       primaryButtonText: 'Inizia Ora',
       secondaryButtonText: 'Annulla',
       onPrimaryPressed: () {
-        // Navigazione verso il motore d'allenamento
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder:
+                (context) => WorkoutEngineScreen(
+                  isar: widget.isar!,
+                  selectedRoutine: routine,
+                  initialExerciseName:
+                      routine.exercises.isNotEmpty
+                          ? routine.exercises.first.exerciseName
+                          : null,
+                ),
+          ),
+        );
       },
     );
   }

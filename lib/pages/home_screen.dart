@@ -7,8 +7,8 @@ import '../models/session.dart';
 import '../models/workout_set.dart';
 import '../models/user_profile.dart';
 
-import '../widgets/volume_chart_card.dart';
-import '../widgets/muscle_heatmap_card.dart';
+import '../widgets/stats/volume_chart_card.dart';
+import '../widgets/stats/muscle_heatmap_card.dart';
 import 'routine_screen.dart';
 import 'workout_screen.dart';
 
@@ -20,9 +20,13 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with AutomaticKeepAliveClientMixin {
   late DateTime _selectedDate;
   late List<DateTime> _currentWeek;
+
+  @override
+  bool get wantKeepAlive => true; // Mantiene vivi la heatmap e i grafici
 
   // Dati estratti da Isar
   String _userName = 'Andrea';
@@ -160,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (sDate != null) {
           final weekday = sDate.weekday;
           tempVolumes[weekday] =
-              (tempVolumes[weekday] ?? 0.0) + (set.weight * set.reps);
+              (tempVolumes[weekday] ?? 0.0) + (set.weight * (set.reps ?? 1));
         }
 
         // Raggruppamento per muscoli (primario e secondari)
@@ -200,6 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 0, 0, 0),
       body: SafeArea(
@@ -247,11 +252,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children:
                     _currentWeek.map((date) {
-                      final bool isSelected =
-                          date.year == _selectedDate.year &&
-                          date.month == _selectedDate.month &&
-                          date.day == _selectedDate.day;
-
                       final now = DateTime.now();
                       final bool isToday =
                           date.year == now.year &&
@@ -259,64 +259,48 @@ class _HomeScreenState extends State<HomeScreen> {
                           date.day == now.day;
 
                       return Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedDate = date;
-                            });
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 3),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color:
+                                isToday
+                                    ? const Color(0xFFFF9700)
+                                    : const Color.fromARGB(0, 30, 30, 30),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
                               color:
-                                  isSelected
-                                      ? const Color(0xFFFF9700)
-                                      : const Color.fromARGB(0, 30, 30, 30),
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color:
-                                    isSelected
-                                        ? Colors.transparent
-                                        : (isToday
-                                            ? Colors.white54
-                                            : Colors.white12),
+                                  isToday ? Colors.transparent : Colors.white12,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 4),
+                              Text(
+                                date.day.toString().padLeft(2, '0'),
+                                style: TextStyle(
+                                  color:
+                                      isToday ? Colors.white : Colors.white54,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
-                            child: Column(
-                              children: [
-                                const SizedBox(height: 4),
-                                Text(
-                                  date.day.toString().padLeft(2, '0'),
-                                  style: TextStyle(
-                                    color:
-                                        isSelected
-                                            ? Colors.white
-                                            : Colors.white54,
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _dayNames[date.weekday - 1],
+                                style: TextStyle(
+                                  color:
+                                      isToday ? Colors.white : Colors.white54,
+                                  fontSize: 14,
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _dayNames[date.weekday - 1],
-                                  style: TextStyle(
-                                    color:
-                                        isSelected
-                                            ? Colors.white
-                                            : Colors.white54,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(height: 4),
+                            ],
                           ),
                         ),
                       );
                     }).toList(),
               ),
-
               const SizedBox(height: 20),
               const Divider(color: Color(0xFFFF9700), thickness: 3, height: 1),
               const SizedBox(height: 16),

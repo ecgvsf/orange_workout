@@ -22,28 +22,34 @@ const ExerciseSchema = CollectionSchema(
       name: r'equipment',
       type: IsarType.string,
     ),
-    r'imagePath': PropertySchema(
+    r'exerciseType': PropertySchema(
       id: 1,
+      name: r'exerciseType',
+      type: IsarType.byte,
+      enumMap: _ExerciseexerciseTypeEnumValueMap,
+    ),
+    r'imagePath': PropertySchema(
+      id: 2,
       name: r'imagePath',
       type: IsarType.string,
     ),
     r'isCompound': PropertySchema(
-      id: 2,
+      id: 3,
       name: r'isCompound',
       type: IsarType.bool,
     ),
     r'muscleGroup': PropertySchema(
-      id: 3,
+      id: 4,
       name: r'muscleGroup',
       type: IsarType.string,
     ),
     r'name': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'name',
       type: IsarType.string,
     ),
     r'secondaryMuscles': PropertySchema(
-      id: 5,
+      id: 6,
       name: r'secondaryMuscles',
       type: IsarType.stringList,
     )
@@ -139,11 +145,12 @@ void _exerciseSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.equipment);
-  writer.writeString(offsets[1], object.imagePath);
-  writer.writeBool(offsets[2], object.isCompound);
-  writer.writeString(offsets[3], object.muscleGroup);
-  writer.writeString(offsets[4], object.name);
-  writer.writeStringList(offsets[5], object.secondaryMuscles);
+  writer.writeByte(offsets[1], object.exerciseType.index);
+  writer.writeString(offsets[2], object.imagePath);
+  writer.writeBool(offsets[3], object.isCompound);
+  writer.writeString(offsets[4], object.muscleGroup);
+  writer.writeString(offsets[5], object.name);
+  writer.writeStringList(offsets[6], object.secondaryMuscles);
 }
 
 Exercise _exerciseDeserialize(
@@ -154,12 +161,15 @@ Exercise _exerciseDeserialize(
 ) {
   final object = Exercise();
   object.equipment = reader.readStringOrNull(offsets[0]);
+  object.exerciseType =
+      _ExerciseexerciseTypeValueEnumMap[reader.readByteOrNull(offsets[1])] ??
+          ExerciseType.reps;
   object.id = id;
-  object.imagePath = reader.readStringOrNull(offsets[1]);
-  object.isCompound = reader.readBool(offsets[2]);
-  object.muscleGroup = reader.readString(offsets[3]);
-  object.name = reader.readString(offsets[4]);
-  object.secondaryMuscles = reader.readStringList(offsets[5]) ?? [];
+  object.imagePath = reader.readStringOrNull(offsets[2]);
+  object.isCompound = reader.readBool(offsets[3]);
+  object.muscleGroup = reader.readString(offsets[4]);
+  object.name = reader.readString(offsets[5]);
+  object.secondaryMuscles = reader.readStringList(offsets[6]) ?? [];
   return object;
 }
 
@@ -173,19 +183,32 @@ P _exerciseDeserializeProp<P>(
     case 0:
       return (reader.readStringOrNull(offset)) as P;
     case 1:
-      return (reader.readStringOrNull(offset)) as P;
+      return (_ExerciseexerciseTypeValueEnumMap[
+              reader.readByteOrNull(offset)] ??
+          ExerciseType.reps) as P;
     case 2:
-      return (reader.readBool(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 3:
-      return (reader.readString(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 4:
       return (reader.readString(offset)) as P;
     case 5:
+      return (reader.readString(offset)) as P;
+    case 6:
       return (reader.readStringList(offset) ?? []) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
 }
+
+const _ExerciseexerciseTypeEnumValueMap = {
+  'reps': 0,
+  'time': 1,
+};
+const _ExerciseexerciseTypeValueEnumMap = {
+  0: ExerciseType.reps,
+  1: ExerciseType.time,
+};
 
 Id _exerciseGetId(Exercise object) {
   return object.id;
@@ -561,6 +584,60 @@ extension ExerciseQueryFilter
       return query.addFilterCondition(FilterCondition.greaterThan(
         property: r'equipment',
         value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<Exercise, Exercise, QAfterFilterCondition> exerciseTypeEqualTo(
+      ExerciseType value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'exerciseType',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Exercise, Exercise, QAfterFilterCondition>
+      exerciseTypeGreaterThan(
+    ExerciseType value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'exerciseType',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Exercise, Exercise, QAfterFilterCondition> exerciseTypeLessThan(
+    ExerciseType value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'exerciseType',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Exercise, Exercise, QAfterFilterCondition> exerciseTypeBetween(
+    ExerciseType lower,
+    ExerciseType upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'exerciseType',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
       ));
     });
   }
@@ -1283,6 +1360,18 @@ extension ExerciseQuerySortBy on QueryBuilder<Exercise, Exercise, QSortBy> {
     });
   }
 
+  QueryBuilder<Exercise, Exercise, QAfterSortBy> sortByExerciseType() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'exerciseType', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Exercise, Exercise, QAfterSortBy> sortByExerciseTypeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'exerciseType', Sort.desc);
+    });
+  }
+
   QueryBuilder<Exercise, Exercise, QAfterSortBy> sortByImagePath() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'imagePath', Sort.asc);
@@ -1343,6 +1432,18 @@ extension ExerciseQuerySortThenBy
   QueryBuilder<Exercise, Exercise, QAfterSortBy> thenByEquipmentDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'equipment', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Exercise, Exercise, QAfterSortBy> thenByExerciseType() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'exerciseType', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Exercise, Exercise, QAfterSortBy> thenByExerciseTypeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'exerciseType', Sort.desc);
     });
   }
 
@@ -1416,6 +1517,12 @@ extension ExerciseQueryWhereDistinct
     });
   }
 
+  QueryBuilder<Exercise, Exercise, QDistinct> distinctByExerciseType() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'exerciseType');
+    });
+  }
+
   QueryBuilder<Exercise, Exercise, QDistinct> distinctByImagePath(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -1461,6 +1568,13 @@ extension ExerciseQueryProperty
   QueryBuilder<Exercise, String?, QQueryOperations> equipmentProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'equipment');
+    });
+  }
+
+  QueryBuilder<Exercise, ExerciseType, QQueryOperations>
+      exerciseTypeProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'exerciseType');
     });
   }
 

@@ -8,8 +8,9 @@ part 'workout_set.g.dart';
 class WorkoutSet {
   Id id = Isar.autoIncrement;
 
-  late int reps;
-  late double weight;
+  int? reps; // Nullabile: nullo se l'esercizio è a tempo
+  int? holdSeconds; // Valorizzato se l'esercizio è a tempo (es. 60 per Plank)
+  late double weight; // 0.0 per corpo libero puro, >0 per sovraccarico/zavorra
 
   int? rpe;
   late bool isWarmup;

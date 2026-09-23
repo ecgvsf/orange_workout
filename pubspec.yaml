@@ -41,10 +41,15 @@ dependencies:
   flutter_staggered_grid_view: ^0.7.0
   table_calendar: ^3.2.1
   image_picker: ^1.1.2
+  live_activities: ^2.3.0
+  flutter_local_notifications: ^17.2.0
+  timezone: ^0.9.4
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.13.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -58,6 +63,12 @@ dev_dependencies:
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/logo2.png"
+  min_sdk_android: 21
+
 # The following section is specific to Flutter packages.
 flutter:
 
@@ -70,6 +81,9 @@ flutter:
   assets:
   - assets/icons/
   - assets/images/
+  - assets/images/equipment/
+  - assets/images/flat/
+  - assets/data/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

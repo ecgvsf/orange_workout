@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,10 +22,20 @@ import 'pages/profile_screen.dart';
 import 'pages/bottom_nav.dart';
 import 'pages/stats_screen.dart';
 import 'pages/workout_engine_screen.dart';
+import 'pages/start_workout_sheet.dart';
+
+import 'services/apple_live_activity.dart';
+import 'services/workout_notification_service.dart';
 
 void main() async {
   // Obbligatorio per permettere chiamate native asincrone prima di runApp
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (Platform.isIOS) {
+    await AppleLiveActivityService.init();
+  }
+  await WorkoutNotificationService().init();
+  // Inizializza notifiche locali
 
   // Ottiene la cartella locale del dispositivo in cui salvare il database
   final dir = await getApplicationDocumentsDirectory();
@@ -69,74 +80,90 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  // Indice memorizzato per la navbar (0: Home, 1: Calendario, 3: Stats, 4: Profilo)
-  int _navBarIndex = 0;
+class _MainNavigationScreenState extends State<MainNavigationScreen>
+    with SingleTickerProviderStateMixin {
+  int _currentIndex = 0;
+  DateTime _selectedWorkoutDate = DateTime.now();
 
-  // Solo le 4 schermate a scorrimento orizzontale/tab
+  late final AnimationController _fadeController;
+  late final Animation<double> _fadeAnimation;
   late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
+
+    // 1. Controller per la dissolvenza pulita tra le tab
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOutCubic,
+    );
+
+    _fadeController.value = 1.0; // Parte visibile
+
+    // 2. Le 4 schermate vengono istanziate e mantenute in vita
     _screens = [
-      HomeScreen(isar: widget.isar), // Indice interno 0
-      CalendarScreen(isar: widget.isar), // Indice interno 1
-      StatsScreen(isar: widget.isar), // Indice interno 2
-      ProfileScreen(isar: widget.isar), // Indice interno 3
+      HomeScreen(isar: widget.isar),
+      CalendarScreen(
+        isar: widget.isar,
+        onDateSelected: (date) => _selectedWorkoutDate = date,
+      ),
+      StatsScreen(isar: widget.isar),
+      ProfileScreen(isar: widget.isar),
     ];
   }
 
-  // Converte l'indice ricevuto dalla navbar (0, 1, 3, 4) nell'indice della lista (0, 1, 2, 3)
-  int _mapNavBarIndexToScreenIndex(int navIndex) {
-    switch (navIndex) {
-      case 0:
-        return 0; // Home
-      case 1:
-        return 1; // Calendario
-      case 3:
-        return 2; // Stats
-      case 4:
-        return 3; // Profilo
-      default:
-        return 0;
-    }
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    super.dispose();
   }
 
-  void _onNavBarTapped(int index) {
+  void _onTabSelected(int index) {
     if (index == 2) {
-      // TASTO "+": Apre la schermata come nuova pagina modale
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          fullscreenDialog:
-              true, // Animazione dal basso verso l'alto tipica delle modali
-          builder: (context) => WorkoutEngineScreen(isar: widget.isar),
-        ),
-      );
+      // Tasto centrale "+": apri la modale di avvio allenamento
+      final DateTime effectiveDate =
+          (_currentIndex == 1) ? _selectedWorkoutDate : DateTime.now();
+
+      StartWorkoutSheet.show(context, widget.isar, effectiveDate);
     } else {
-      // Altri tasti: cambiano la tab corrente senza resettare la pagina
-      setState(() {
-        _navBarIndex = index;
-      });
+      final targetIndex = index > 2 ? index - 1 : index;
+      if (_currentIndex != targetIndex) {
+        // Avvia la transizione a dissolvenza senza distruggere i grafici
+        _fadeController.reverse().then((_) {
+          if (mounted) {
+            setState(() {
+              _currentIndex = targetIndex;
+            });
+            _fadeController.forward();
+          }
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final int screenIndex = _mapNavBarIndexToScreenIndex(_navBarIndex);
-
     return Scaffold(
-      extendBody:
-          true, // Permette ai contenuti di scorrere dietro la card fluttuante
+      extendBody: true,
       backgroundColor: const Color(0xFF121212),
-      body: _screens[screenIndex],
+      // IndexedStack preserva lo stato esatto di tutte le pagine,
+      // mentre FadeTransition crea la transizione sfumata senza scorrimento
+      body: FadeTransition(
+        opacity: _fadeAnimation,
+        child: IndexedStack(index: _currentIndex, children: _screens),
+      ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 16.0),
           child: FloatingWorkoutNavBar(
-            currentIndex: _navBarIndex,
-            onTap: _onNavBarTapped,
+            currentIndex: _currentIndex,
+            onTap: _onTabSelected,
           ),
         ),
       ),

@@ -72,8 +72,12 @@ enum MuscleGroup {
   addome(
     label: 'Addome',
     macroSplit: MacroSplit.core,
-    svgId:
-        'addominali', // Combacia con <g id="addominali"> e addominali-centrali/-laterali
+    svgId: 'addominali-centrali',
+  ),
+  obliqui(
+    label: 'Obliqui',
+    macroSplit: MacroSplit.core,
+    svgId: 'addominali-laterali',
   );
 
   final String label;
