@@ -111,7 +111,7 @@ class _CalendarScreenState extends State<CalendarScreen>
 
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 700),
     );
 
     _expandAnimation = CurvedAnimation(

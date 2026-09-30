@@ -19473,6 +19473,116 @@
       "met": 5.0
     },
     {
+      "id": "incline-chest-press",
+      "name": "Machine Incline Chest Press",
+      "description": "A machine-based upper chest exercise pressing upward and forward along a guided path, targeting the clavicular head of the pectoralis major with minimal shoulder strain.",
+      "instructions": [
+        "Adjust the seat height so the handles align across your upper chest, just below clavicle level.",
+        "Sit with your back and head firmly pressed against the back pad, feet flat on the floor.",
+        "Grip the handles firmly with an overhand or neutral grip and retract your shoulder blades.",
+        "Press the handles forward and slightly upward until your arms are fully extended without forcefully locking your elbows.",
+        "Pause briefly at peak contraction, then lower the handles back under control until you feel a comfortable stretch in your upper chest."
+      ],
+      "tips": [
+        "Keep your shoulder blades retracted and depressed against the back pad throughout the movement.",
+        "Avoid letting your elbows flare excessively wide; keep them tucked at roughly a 45 to 60-degree angle to protect the shoulders.",
+        "Control the lowering phase smoothly instead of letting the weight stack slam at the bottom."
+      ],
+      "category": "strength",
+      "force_type": "push",
+      "mechanic": "compound",
+      "difficulty": "beginner",
+      "equipment": "chest_press_machine",
+      "body_part": "chest",
+      "primary_muscles": [
+        "pectoralis_major"
+      ],
+      "secondary_muscles": [
+        "anterior_deltoid",
+        "triceps_brachii"
+      ],
+      "goals": [
+        "hypertrophy",
+        "strength"
+      ],
+      "tags": [
+        "push_day",
+        "knee_safe",
+        "no_axial_load",
+        "lower_back_safe",
+        "shoulder_safe"
+      ],
+      "variation_group": "bench-press",
+      "is_unilateral": false,
+      "is_bodyweight": false,
+      "images": {
+        "flat": [
+          "main"
+        ]
+      },
+      "synonyms": [
+        "incline chest press machine",
+        "machine incline bench press",
+        "plate-loaded incline chest press"
+      ],
+      "met": 6.0
+    },
+    {
+      "id": "seated-dips-machine",
+      "name": "Seated Dip Machine",
+      "description": "A machine-based pressing movement pushing downward against padded levers from a seated position, isolating the triceps and lower chest without requiring balance on parallel bars.",
+      "instructions": [
+        "Sit upright in the machine with your back against the pad and adjust the seat so the handles sit comfortably at waist height.",
+        "Secure your thighs firmly under the hold-down roller pads if available.",
+        "Grip the handles with your palms facing inward (neutral grip) and start with arms bent at roughly 90 degrees.",
+        "Press the handles downward by extending your elbows until your arms are straight.",
+        "Squeeze your triceps hard at full extension, then slowly control the handles back up to the starting position."
+      ],
+      "tips": [
+        "Keep your elbows pointing back rather than flaring out to the sides.",
+        "Avoid shrugging your shoulders upward as the handles rise; maintain scapular depression.",
+        "Keep your torso steady and avoid leaning excessively forward unless intentionally shifting load to the lower chest."
+      ],
+      "category": "strength",
+      "force_type": "push",
+      "mechanic": "compound",
+      "difficulty": "beginner",
+      "equipment": "dip_machine",
+      "body_part": "upper_arms",
+      "primary_muscles": [
+        "triceps_brachii"
+      ],
+      "secondary_muscles": [
+        "anterior_deltoid",
+        "pectoralis_major"
+      ],
+      "goals": [
+        "hypertrophy",
+        "strength"
+      ],
+      "tags": [
+        "push_day",
+        "arm_day",
+        "knee_safe",
+        "no_axial_load",
+        "lower_back_safe"
+      ],
+      "variation_group": "dips",
+      "is_unilateral": false,
+      "is_bodyweight": false,
+      "images": {
+        "flat": [
+          "main"
+        ]
+      },
+      "synonyms": [
+        "seated dip",
+        "machine seated dip",
+        "tricep dip machine"
+      ],
+      "met": 5.5
+    },
+    {
       "id": "lying-tricep-extension",
       "name": "Lying Tricep Extension",
       "description": "A lying isolation exercise lowering the weight toward the forehead and extending the elbows to work the triceps.",

@@ -18,7 +18,8 @@ import '../widgets/workout_engine/workout_header.dart';
 import '../widgets/workout_engine/workout_rest_timer_card.dart';
 import '../widgets/workout_engine/active_exercise_card.dart';
 import '../widgets/workout_engine/completed_exercise_row.dart';
-import '../pages/workout_summary_page.dart'; // O il percorso corretto alla tua pagina di riepilogo
+import '../pages/workout_summary_page.dart';
+import '../services/native_timer_chip_service.dart';
 
 class CompletedExerciseSummary {
   final String exerciseName;
@@ -36,29 +37,32 @@ class WorkoutEngineScreen extends StatefulWidget {
   final Isar isar;
   final RoutineTemplate? selectedRoutine;
   final String? initialExerciseName;
-  final DateTime? workoutDate; // <-- REINTEGRATO PER IL CALENDARIO
+  final DateTime? workoutDate;
 
   const WorkoutEngineScreen({
     super.key,
     required this.isar,
     this.selectedRoutine,
     this.initialExerciseName,
-    this.workoutDate, // <-- REINTEGRATO
+    this.workoutDate,
   });
 
   @override
   State<WorkoutEngineScreen> createState() => _WorkoutEngineScreenState();
 }
 
-class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
+// Implementato WidgetsBindingObserver per rilevare il risveglio dallo sfondo/blocco
+class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
+    with WidgetsBindingObserver {
   // Timer di sessione
   late final DateTime _startTime;
   int _elapsedSeconds = 0;
   Timer? _sessionTimer;
 
-  // Timer di recupero
+  // Timer di recupero basato su timestamp reale
   int _restRemaining = 0;
   int _initialRestDuration = 90;
+  DateTime? _restEndTime; // Timestamp assoluto di termine recupero
   Timer? _restTimer;
 
   // Live Activity (iOS)
@@ -70,7 +74,7 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
 
   // Stato dell'esercizio corrente
   int _currentRoutineIndex = 0;
-  late String _currentExerciseName;
+  String _currentExerciseName = 'Caricamento...';
   String _currentMuscleGroup = 'Generale';
   int _targetSets = 3;
   int _minReps = 8;
@@ -85,26 +89,66 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
   int _currentReps = 8;
   bool _isWarmup = false;
 
-  // Serie dell'esercizio attivo
   final List<WorkoutSet> _activeExerciseSets = [];
-
-  // Esercizi in pausa per alternanza (Super-Set)
   final Map<String, List<WorkoutSet>> _pausedExercises = {};
-
-  // Esercizi conclusi e archiviati nella sessione
   final List<CompletedExerciseSummary> _completedExercises = [];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startTime = DateTime.now();
     _startSessionTimer();
+
+    // Inizializzazione sincrona immediata prima del primo frame
+    if (widget.selectedRoutine != null &&
+        widget.selectedRoutine!.exercises.isNotEmpty) {
+      _currentExerciseName = widget.selectedRoutine!.exercises[0].exerciseName;
+      _currentMuscleGroup = widget.selectedRoutine!.exercises[0].muscleGroup;
+    } else if (widget.initialExerciseName != null) {
+      _currentExerciseName = widget.initialExerciseName!;
+    } else {
+      _currentExerciseName = 'Esercizio Libero';
+    }
+
+    WorkoutNotificationService().onAddTimeListener = (extraSeconds) {
+      if (!mounted) return;
+      _onNotificationAddedTime(extraSeconds);
+    };
     _loadGlobalPreferences().then((_) {
       _initializeExercise();
     });
   }
 
-  Future<void> _loadGlobalPreferences() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Quando rientri nell'applicazione o sblocchi lo schermo
+    if (state == AppLifecycleState.resumed) {
+      _syncAllTimers();
+    }
+  }
+
+  /// Sincronizza sia la durata totale della sessione sia il conto alla rovescia di recupero
+  void _syncAllTimers() {
+    if (!mounted) return;
+
+    setState(() {
+      // 1. Sincronizzazione timer sessione
+      _elapsedSeconds = DateTime.now().difference(_startTime).inSeconds;
+
+      // 2. Sincronizzazione timer recupero
+      if (_restEndTime != null) {
+        final remaining = _restEndTime!.difference(DateTime.now()).inSeconds;
+        if (remaining <= 0) {
+          _onRestCompleted();
+        } else {
+          _restRemaining = remaining;
+        }
+      }
+    });
+  }
+
+  Future _loadGlobalPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
@@ -117,206 +161,54 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _sessionTimer?.cancel();
-    _restTimer?.cancel();
-    WorkoutNotificationService().cancelRestNotifications();
-    if (Platform.isIOS && _activeLiveActivityId != null) {
-      AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
-    }
-    super.dispose();
-  }
+  /// Metodo chiamato dal pulsante della notifica (+15s / +30s)
+  void _onNotificationAddedTime(int extraSeconds) {
+    if (_restRemaining <= 0 && _restEndTime == null) return;
 
-  void _startSessionTimer() {
-    _sessionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          _elapsedSeconds++;
-        });
-      }
-    });
-  }
+    final now = DateTime.now();
+    final baseTime =
+        (_restEndTime != null && _restEndTime!.isAfter(now))
+            ? _restEndTime!
+            : now;
 
-  Future<void> _confirmExitWorkout() async {
-    final bool hasData =
-        _activeExerciseSets.isNotEmpty ||
-        _completedExercises.isNotEmpty ||
-        _pausedExercises.isNotEmpty;
+    final newEndTime = baseTime.add(Duration(seconds: extraSeconds));
+    final updatedRemaining = newEndTime.difference(now).inSeconds;
 
-    if (!hasData) {
-      WorkoutNotificationService().cancelRestNotifications();
-      if (Platform.isIOS && _activeLiveActivityId != null) {
-        await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
-      }
-      if (mounted) Navigator.pop(context);
-      return;
-    }
-
-    HapticFeedback.mediumImpact();
-    final bool? shouldExit = await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder:
-          (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF1E1E1E),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-              side: BorderSide(
-                color: Colors.white.withValues(alpha: 0.08),
-                width: 1.2,
-              ),
-            ),
-            title: const Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Color(0xFFFF9700),
-                  size: 24,
-                ),
-                SizedBox(width: 10),
-                Text(
-                  'Interrompere sessione?',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            content: const Text(
-              'Se esci adesso i dati e le serie registrate in questa sessione non verranno salvati.',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            actions: [
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.15),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text(
-                        'Continua',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text(
-                        'Esci',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-    );
-
-    if (shouldExit == true && mounted) {
-      WorkoutNotificationService().cancelRestNotifications();
-      if (Platform.isIOS && _activeLiveActivityId != null) {
-        await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
-      }
-      Navigator.pop(context);
-    }
-  }
-
-  // --- TIMER DI RECUPERO ---
-  Future<void> _startRestCountdown(int seconds) async {
-    _restTimer?.cancel();
     setState(() {
-      _initialRestDuration = seconds;
-      _restRemaining = seconds;
-    });
-
-    WorkoutNotificationService().startRestNotification(
-      seconds: seconds,
-      exerciseName: _currentExerciseName,
-    );
-
-    if (Platform.isIOS) {
-      if (_activeLiveActivityId != null) {
-        await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
-        _activeLiveActivityId = null;
-      }
-      _activeLiveActivityId = await AppleLiveActivityService.startRestActivity(
-        exerciseName: _currentExerciseName,
-        seconds: seconds,
-      );
-    }
-
-    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_restRemaining <= 1) {
-        timer.cancel();
-        HapticFeedback.heavyImpact();
-        WorkoutNotificationService().cancelRestNotifications();
-        if (Platform.isIOS && _activeLiveActivityId != null) {
-          AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
-          _activeLiveActivityId = null;
-        }
-        if (mounted) {
-          setState(() {
-            _restRemaining = 0;
-          });
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _restRemaining--;
-          });
-        }
-      }
-    });
-  }
-
-  void _skipRest() async {
-    _restTimer?.cancel();
-    WorkoutNotificationService().cancelRestNotifications();
-    if (Platform.isIOS && _activeLiveActivityId != null) {
-      await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
-      _activeLiveActivityId = null;
-    }
-    setState(() {
-      _restRemaining = 0;
-    });
-  }
-
-  void _addRestTime(int extraSeconds) {
-    setState(() {
-      _restRemaining += extraSeconds;
+      _restEndTime = newEndTime;
+      _restRemaining = updatedRemaining;
       _initialRestDuration += extraSeconds;
     });
 
+    // Se su iOS è attiva una Live Activity, la aggiorniamo
+    if (Platform.isIOS) {
+      AppleLiveActivityService.startRestActivity(
+        exerciseName: _currentExerciseName,
+        seconds: _restRemaining,
+      ).then((id) => _activeLiveActivityId = id);
+    }
+  }
+
+  /// Metodo chiamato dai pulsanti a schermo (+15s / +30s nella WorkoutRestTimerCard)
+  void _addRestTime(int extraSeconds) {
+    if (_restRemaining <= 0 && _restEndTime == null) return;
+
+    final now = DateTime.now();
+    final baseTime =
+        (_restEndTime != null && _restEndTime!.isAfter(now))
+            ? _restEndTime!
+            : now;
+
+    final newEndTime = baseTime.add(Duration(seconds: extraSeconds));
+    final updatedRemaining = newEndTime.difference(now).inSeconds;
+
+    setState(() {
+      _restEndTime = newEndTime;
+      _restRemaining = updatedRemaining;
+      _initialRestDuration += extraSeconds;
+    });
+
+    // Riavvia/aggiorna la notifica con i pulsanti e il nuovo timestamp
     WorkoutNotificationService().startRestNotification(
       seconds: _restRemaining,
       exerciseName: _currentExerciseName,
@@ -330,8 +222,113 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _sessionTimer?.cancel();
+    _restTimer?.cancel();
+    WorkoutNotificationService().onAddTimeListener = null;
+    WorkoutNotificationService().cancelRestNotifications();
+    if (Platform.isIOS && _activeLiveActivityId != null) {
+      AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+    }
+    super.dispose();
+  }
+
+  void _startSessionTimer() {
+    _sessionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          // Calcolo differenziale continuo per evitare drifting temporale
+          _elapsedSeconds = DateTime.now().difference(_startTime).inSeconds;
+        });
+      }
+    });
+  }
+
+  // --- LOGICA TIMER DI RECUPERO A DIFFERENZA ORARIA ---
+  Future _startRestCountdown(int seconds) async {
+    _restTimer?.cancel();
+    final now = DateTime.now();
+
+    setState(() {
+      _initialRestDuration = seconds;
+      _restRemaining = seconds;
+      _restEndTime = now.add(Duration(seconds: seconds));
+    });
+
+    // Notifica di sistema per Android / iOS (Singola notifica unificata)
+    WorkoutNotificationService().startRestNotification(
+      seconds: seconds,
+      exerciseName: _currentExerciseName,
+    );
+
+    // Live Activity per iOS
+    if (Platform.isIOS) {
+      if (_activeLiveActivityId != null) {
+        await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+        _activeLiveActivityId = null;
+      }
+      _activeLiveActivityId = await AppleLiveActivityService.startRestActivity(
+        exerciseName: _currentExerciseName,
+        seconds: seconds,
+      );
+    }
+
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _restEndTime == null) {
+        timer.cancel();
+        return;
+      }
+
+      final remaining = _restEndTime!.difference(DateTime.now()).inSeconds;
+
+      if (remaining <= 0) {
+        timer.cancel();
+        _onRestCompleted();
+      } else {
+        setState(() {
+          _restRemaining = remaining;
+        });
+      }
+    });
+  }
+
+  void _onRestCompleted() {
+    _restTimer?.cancel();
+    _restEndTime = null;
+    HapticFeedback.heavyImpact();
+
+    WorkoutNotificationService().cancelRestNotifications();
+    WorkoutNotificationService().triggerInstantAlarm(_currentExerciseName);
+
+    if (Platform.isIOS && _activeLiveActivityId != null) {
+      AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+      _activeLiveActivityId = null;
+    }
+
+    if (mounted) {
+      setState(() {
+        _restRemaining = 0;
+      });
+    }
+  }
+
+  void _skipRest() async {
+    _restTimer?.cancel();
+    _restEndTime = null;
+    await WorkoutNotificationService().cancelRestNotifications();
+    if (Platform.isIOS && _activeLiveActivityId != null) {
+      await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+      _activeLiveActivityId = null;
+    }
+    setState(() {
+      _restRemaining = 0;
+    });
+  }
+
   // --- CARICAMENTO ESERCIZIO & GHOST DATA ---
-  Future<void> _initializeExercise() async {
+  Future _initializeExercise() async {
     if (widget.selectedRoutine != null &&
         widget.selectedRoutine!.exercises.isNotEmpty) {
       final config = widget.selectedRoutine!.exercises[_currentRoutineIndex];
@@ -359,7 +356,7 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     await _loadGhostDataFor(_currentExerciseName);
   }
 
-  Future<void> _loadGhostDataFor(String exerciseName) async {
+  Future _loadGhostDataFor(String exerciseName) async {
     final matchingSets =
         await widget.isar.workoutSets
             .filter()
@@ -377,7 +374,6 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     }
   }
 
-  // --- TOGGLE UNITA' DI CARICO AL VOLO ---
   void _toggleWeightUnit(WeightUnit newUnit) {
     if (newUnit == _activeUnit) return;
     setState(() {
@@ -397,7 +393,6 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     });
   }
 
-  // --- REGISTRAZIONE ED ELIMINAZIONE SERIE CORRENTE ---
   void _completeCurrentSet() {
     final double normalizedKg = WeightConverter.toDatabaseKg(
       _currentWeight,
@@ -429,7 +424,6 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     });
   }
 
-  // --- ELIMINAZIONE ESERCIZIO CONCLUSO DALLA SESSIONE ---
   void _removeCompletedExercise(int index) {
     final exerciseName = _completedExercises[index].exerciseName;
 
@@ -487,7 +481,6 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     );
   }
 
-  // --- CONCLUSIONE ESERCIZIO ATTIVO ---
   void _finishCurrentExercise() {
     if (_activeExerciseSets.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -519,7 +512,6 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     }
   }
 
-  // --- CAMBIO ESERCIZIO FLUIDO ---
   void _onSwapExercisePressed() {
     if (_activeExerciseSets.isNotEmpty) {
       if (_pausedExercises.containsKey(_currentExerciseName)) {
@@ -635,8 +627,120 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
     );
   }
 
-  // --- PERSISTENZA FINALE SU ISAR ---
-  Future<void> _endWorkoutSession() async {
+  Future _confirmExitWorkout() async {
+    final bool hasData =
+        _activeExerciseSets.isNotEmpty ||
+        _completedExercises.isNotEmpty ||
+        _pausedExercises.isNotEmpty;
+
+    if (!hasData) {
+      WorkoutNotificationService().cancelRestNotifications();
+      if (Platform.isIOS && _activeLiveActivityId != null) {
+        await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+      }
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+    final bool? shouldExit = await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(
+                color: Colors.white.withValues(alpha: 0.08),
+                width: 1.2,
+              ),
+            ),
+            title: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFFF9700),
+                  size: 24,
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Interrompere sessione?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            content: const Text(
+              'Se esci adesso i dati e le serie registrate in questa sessione non verranno salvati.',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            actions: [
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.15),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Continua',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Esci',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+    );
+
+    if (shouldExit == true && mounted) {
+      WorkoutNotificationService().cancelRestNotifications();
+      if (Platform.isIOS && _activeLiveActivityId != null) {
+        await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+      }
+      Navigator.pop(context);
+    }
+  }
+
+  Future _endWorkoutSession() async {
     if (_activeExerciseSets.isNotEmpty) {
       _completedExercises.add(
         CompletedExerciseSummary(
@@ -666,8 +770,12 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
       return;
     }
 
+    WorkoutNotificationService().cancelRestNotifications();
+    if (Platform.isIOS && _activeLiveActivityId != null) {
+      AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+    }
+
     final now = DateTime.now();
-    // UTILIZZA WORKOUTDATE QUI PER SALVARE NEL GIORNO CORRETTO
     final targetDate = widget.workoutDate ?? now;
     final sessionDate = DateTime(
       targetDate.year,
@@ -854,7 +962,6 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
                         onRegisterSet: _completeCurrentSet,
                       ),
                       const SizedBox(height: 16),
-
                       if (_activeExerciseSets.isNotEmpty) ...[
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -928,8 +1035,8 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
                                   const Spacer(),
                                   Text(
                                     s.holdSeconds != null && s.holdSeconds! > 0
-                                        ? '${s.weight} kg × ${s.holdSeconds}s'
-                                        : '${s.weight} kg × ${s.reps}',
+                                        ? '${s.weight} kg × ${s.holdSeconds} s'
+                                        : '${s.weight} kg × ${s.reps} reps',
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w600,
@@ -989,10 +1096,7 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen> {
                           ),
                         ),
                       ],
-
                       const SizedBox(height: 24),
-
-                      // ESERCIZI CONCLUSI
                       if (_completedExercises.isNotEmpty) ...[
                         Text(
                           'ESERCIZI CONCLUSI (${_completedExercises.length})',

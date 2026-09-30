@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter/foundation.dart';
 
 class WorkoutNotificationService {
   static final WorkoutNotificationService _instance =
@@ -12,12 +15,29 @@ class WorkoutNotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  /// Inizializza il plugin e registra i canali audio/vibrazione nativi
-  Future<void> init() async {
+  Uint8List? _logoBytes;
+
+  static final Int64List _alarmVibrationPattern = Int64List.fromList([
+    0,
+    1000,
+    300,
+    1000,
+  ]);
+
+  void Function(int extraSeconds)? onAddTimeListener;
+
+  Future init() async {
     tz.initializeTimeZones();
 
+    try {
+      final byteData = await rootBundle.load('assets/images/logo2.png');
+      _logoBytes = byteData.buffer.asUint8List();
+    } catch (_) {
+      _logoBytes = null;
+    }
+
     const androidSettings = AndroidInitializationSettings(
-      '@mipmap/ic_launcher',
+      '@drawable/logo_monochromatic',
     );
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
@@ -32,106 +52,126 @@ class WorkoutNotificationService {
 
     await _plugin.initialize(initSettings);
 
-    final androidImpl =
+    final AndroidFlutterLocalNotificationsPlugin? androidImpl =
         _plugin
             .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin
             >();
-    await androidImpl?.requestNotificationsPermission();
 
-    // 1. CANALE SILENZIOSO PER IL TIMER (Non fa scendere il popup heads-up!)
-    await androidImpl?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'workout_rest_silent_v1', // ID nuovo dedicato al timer discreto
-        'Timer Recupero (Discreto)',
-        description: 'Mostra il cronometro senza banner fluttuanti',
-        importance: Importance.low, // 👈 LOW = NESSUN BANNER A DISCESA!
-        enableVibration: false,
-        playSound: false,
-        showBadge: false,
-      ),
-    );
+    if (androidImpl != null) {
+      try {
+        await (androidImpl as dynamic).requestNotificationsPermission();
+      } catch (_) {}
 
-    // 2. CANALE AD ALTA PRIORITÀ PER LA FINE DEL RECUPERO (Allarme + Vibrazione)
-    await androidImpl?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'workout_rest_alarm_v3',
-        'Avviso Fine Recupero (Allarme)',
-        description: 'Avviso con suono/vibrazione quando il tempo è a zero',
-        importance:
-            Importance.max, // 👈 MAX = Suona, vibra e si illumina a fine tempo
-        enableVibration: true,
-        playSound: true,
-        showBadge: true,
-      ),
-    );
+      // 1. CANALE DEDICATO ALLA PILLOLA / FOREGROUND
+      await androidImpl.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'workout_rest_fgs_v5', // ID nuovo per forzare il refresh delle impostazioni
+          'Timer Recupero (Pillola e Barra)',
+          description:
+              'Gestisce il cronometro continuo e la pillola in barra di stato',
+          importance: Importance.max, // Indispensabile per attivare il chip
+          enableVibration: false,
+          playSound: false,
+          showBadge: false,
+        ),
+      );
+
+      // 2. CANALE SVEGLIA FINE RECUPERO
+      await androidImpl.createNotificationChannel(
+        AndroidNotificationChannel(
+          'workout_rest_alarm_v3',
+          'Avviso Fine Recupero (Allarme)',
+          description: 'Vibrazione e suono quando il tempo scade',
+          importance: Importance.max,
+          enableVibration: true,
+          vibrationPattern: _alarmVibrationPattern,
+          playSound: true,
+          showBadge: true,
+        ),
+      );
+    }
   }
 
-  /// Avvia il conto alla rovescia e pianifica la notifica di completamento
-  Future<void> startRestNotification({
+  Future startRestNotification({
     required int seconds,
     required String exerciseName,
   }) async {
     await cancelRestNotifications();
 
+    if (seconds <= 0) return;
+
     final scheduledDate = tz.TZDateTime.now(
       tz.local,
     ).add(Duration(seconds: seconds));
 
-    // 1. CHRONOMETER COUNTDOWN LIVE SU SCHERMATA DI BLOCCO (Android)
+    final ByteArrayAndroidBitmap? largeIconBitmap =
+        _logoBytes != null ? ByteArrayAndroidBitmap(_logoBytes!) : null;
+
     if (Platform.isAndroid) {
       final targetTimeMillis =
           DateTime.now().add(Duration(seconds: seconds)).millisecondsSinceEpoch;
 
       final liveDetails = AndroidNotificationDetails(
-        'workout_rest_silent_v1', // 👈 Usa il canale discreto
-        'Timer Recupero (Discreto)',
+        'workout_rest_fgs_v5',
+        'Timer Recupero (Pillola e Barra)',
         channelDescription: 'Visualizza il tempo di recupero residuo',
-        icon: '@drawable/notification_logo',
-        largeIcon: const DrawableResourceAndroidBitmap(
-          '@drawable/notification_logo',
-        ),
-
-        // 👇 QUESTE DUE RIGHE BLOCCANO IL POPUP IN ALTO:
-        importance: Importance.low,
-        priority: Priority.low,
-
-        // Rende comunque la notifica visibile sulla Lock Screen e non eliminabile con swipe:
+        icon: '@drawable/logo_monochromatic',
+        largeIcon: largeIconBitmap,
+        importance: Importance.max,
+        priority: Priority.max,
+        visibility: NotificationVisibility.public,
         ongoing: true,
         autoCancel: false,
-        visibility: NotificationVisibility.public,
-
         showWhen: true,
         when: targetTimeMillis,
         usesChronometer: true,
         chronometerCountDown: true,
         category: AndroidNotificationCategory.stopwatch,
+        onlyAlertOnce: true,
         timeoutAfter: seconds * 1000,
       );
 
-      await _plugin.show(
-        100,
-        'Recupero in corso ⏱️',
-        'Prossimo: $exerciseName',
-        NotificationDetails(android: liveDetails),
-      );
+      final AndroidFlutterLocalNotificationsPlugin? androidImpl =
+          _plugin
+              .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin
+              >();
+
+      if (androidImpl != null) {
+        try {
+          await androidImpl.startForegroundService(
+            100,
+            'Recupero • $exerciseName',
+            'Tempo rimanente',
+            notificationDetails: liveDetails,
+          );
+        } catch (_) {
+          await _plugin.show(
+            100,
+            'Recupero • $exerciseName',
+            'Tempo rimanente',
+            NotificationDetails(android: liveDetails),
+          );
+        }
+      }
     }
 
-    // 2. AVVISO FINALE A TEMPO SCADUTO (Android & iOS)
+    // 2. Allarme di fine recupero (ID: 101)
     final androidFinalDetails = AndroidNotificationDetails(
-      'workout_rest_channel',
-      'Timer Recupero Workout',
-      icon: '@drawable/notification_logo',
-      largeIcon: const DrawableResourceAndroidBitmap(
-        '@drawable/notification_logo',
-      ),
+      'workout_rest_alarm_v3',
+      'Avviso Fine Recupero (Allarme)',
       channelDescription: 'Avviso fine riposo serie',
+      icon: '@drawable/logo_monochromatic',
+      largeIcon: largeIconBitmap,
       importance: Importance.max,
-      priority: Priority.high,
+      priority: Priority.max,
       visibility: NotificationVisibility.public,
       fullScreenIntent: true,
       playSound: true,
       enableVibration: true,
+      vibrationPattern: _alarmVibrationPattern,
+      category: AndroidNotificationCategory.alarm,
     );
 
     const iosFinalDetails = DarwinNotificationDetails(
@@ -140,51 +180,82 @@ class WorkoutNotificationService {
       interruptionLevel: InterruptionLevel.timeSensitive,
     );
 
-    // Verifica se Android consente gli allarmi esatti per evitare PlatformException
     AndroidScheduleMode scheduleMode =
         AndroidScheduleMode.inexactAllowWhileIdle;
     if (Platform.isAndroid) {
-      final androidImpl =
+      final AndroidFlutterLocalNotificationsPlugin? androidImpl =
           _plugin
               .resolvePlatformSpecificImplementation<
                 AndroidFlutterLocalNotificationsPlugin
               >();
-      final bool? canScheduleExact =
-          await androidImpl?.canScheduleExactNotifications();
-      if (canScheduleExact == true) {
-        scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
-      }
+      try {
+        final bool? canScheduleExact =
+            await (androidImpl as dynamic)?.canScheduleExactNotifications();
+        if (canScheduleExact == true) {
+          scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
+        }
+      } catch (_) {}
     }
 
     try {
       await _plugin.zonedSchedule(
         101,
         'Tempo Scaduto! ⏱️',
-        'È ora di iniziare la serie di $exerciseName',
+        'Inizia la prossima serie di $exerciseName',
         scheduledDate,
         NotificationDetails(android: androidFinalDetails, iOS: iosFinalDetails),
         androidScheduleMode: scheduleMode,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-    } catch (e) {
-      // Fallback nel caso in cui il dispositivo blocchi la schedulazione esatta
-      await _plugin.zonedSchedule(
-        101,
-        'Tempo Scaduto! ⏱️',
-        'È ora di iniziare la serie di $exerciseName',
-        scheduledDate,
-        NotificationDetails(android: androidFinalDetails, iOS: iosFinalDetails),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-    }
+    } catch (_) {}
   }
 
-  /// Cancella sia il cronometro sia l'avviso acustico pendente
-  Future<void> cancelRestNotifications() async {
+  Future triggerInstantAlarm(String exerciseName) async {
+    final ByteArrayAndroidBitmap? largeIconBitmap =
+        _logoBytes != null ? ByteArrayAndroidBitmap(_logoBytes!) : null;
+
+    final androidDetails = AndroidNotificationDetails(
+      'workout_rest_alarm_v3',
+      'Avviso Fine Recupero (Allarme)',
+      channelDescription: 'Vibrazione istantanea fine recupero',
+      icon: '@drawable/logo_monochromatic',
+      largeIcon: largeIconBitmap,
+      importance: Importance.max,
+      priority: Priority.max,
+      enableVibration: true,
+      vibrationPattern: _alarmVibrationPattern,
+      category: AndroidNotificationCategory.alarm,
+      autoCancel: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentSound: true,
+      interruptionLevel: InterruptionLevel.timeSensitive,
+    );
+
+    await _plugin.show(
+      102,
+      'Tempo Scaduto! ⏱️',
+      'Inizia la serie di $exerciseName',
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
+    );
+  }
+
+  Future cancelRestNotifications() async {
     await _plugin.cancel(100);
     await _plugin.cancel(101);
+
+    if (Platform.isAndroid) {
+      final AndroidFlutterLocalNotificationsPlugin? androidImpl =
+          _plugin
+              .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin
+              >();
+      try {
+        await (androidImpl as dynamic)?.stopForegroundService();
+      } catch (_) {}
+    }
   }
 }
