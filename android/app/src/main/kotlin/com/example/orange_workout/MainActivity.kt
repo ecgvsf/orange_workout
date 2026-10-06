@@ -1,37 +1,73 @@
-package com.example.orange_workout 
+package com.example.orange_workout
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
-import android.os.SystemClock
+import android.provider.Settings
+import android.text.TextUtils
 import androidx.core.app.NotificationCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
-    private val CHANNEL = "com.orangeworkout/live_timer"
-    private val NOTIFICATION_ID = 200
-    private val CHANNEL_ID = "rest_timer_chip_channel"
+    private val CHANNEL = "com.orange_workout/dynamic_island"
+    private val NOTIFICATION_ID = 999
+    private var methodChannel: MethodChannel? = null
+
+    // Ascolta i comandi provenienti dalla Dynamic Island e li gira a Flutter
+    private val islandActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "ADD_TIME_FROM_ISLAND") {
+                val addedSecs = intent.getIntExtra("seconds", 0)
+                methodChannel?.invokeMethod("addTime", addedSecs)
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
-        createNotificationChannel()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(islandActionReceiver, IntentFilter("ADD_TIME_FROM_ISLAND"), RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(islandActionReceiver, IntentFilter("ADD_TIME_FROM_ISLAND"))
+        }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+        methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
-                "startChipTimer" -> {
-                    val seconds = call.argument("seconds") ?: 90
-                    val exerciseName = call.argument("exerciseName") ?: "Recupero"
-                    startChipNotification(seconds, exerciseName)
+                "checkPermission" -> {
+                    result.success(isAccessibilityServiceEnabled())
+                }
+                "openSettings" -> {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     result.success(true)
                 }
-                "stopChipTimer" -> {
-                    stopChipNotification()
+                "startSilentNotification" -> {
+                    val exercise = call.argument<String>("exerciseName") ?: "Recupero"
+                    showSilentNotification(exercise)
+                    result.success(true)
+                }
+                "stopSilentNotification" -> {
+                    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    manager.cancel(NOTIFICATION_ID)
+                    result.success(true)
+                }
+                "showIsland" -> {
+                    val seconds = call.argument<Int>("seconds") ?: 180
+                    val intent = Intent("SHOW_ISLAND_ACTION")
+                    intent.putExtra("seconds", seconds)
+                    sendBroadcast(intent)
+                    result.success(true)
+                }
+                "hideIsland" -> {
+                    sendBroadcast(Intent("HIDE_ISLAND_ACTION"))
                     result.success(true)
                 }
                 else -> result.notImplemented()
@@ -39,64 +75,47 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun createNotificationChannel() {
+    private fun showSilentNotification(exercise: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "silent_island_channel_v2"
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Timer Recupero Pillola",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Mostra la pillola e il timer continuo"
+            // IMPORTANCE_LOW impedisce il popup a discesa (Heads-up)
+            val channel = NotificationChannel(channelId, "Timer Silenzioso", NotificationManager.IMPORTANCE_LOW).apply {
                 setSound(null, null)
                 enableVibration(false)
+                setShowBadge(false)
             }
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
         }
-    }
 
-    private fun startChipNotification(seconds: Int, exerciseName: String) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val iconRes = resources.getIdentifier("ic_launcher", "mipmap", packageName)
 
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // Calcola il target temporale assoluto per il cronometro nativo
-        val stopTimeMillis = SystemClock.elapsedRealtime() + (seconds * 1000L)
-
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.logo_monochromatic) // Il tuo drawable monocromatico
-            .setContentTitle("Recupero • $exerciseName")
-            .setContentText("Timer in corso")
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            // QUESTI 4 ATTRIBUTI ATTIVANO LA PILLOLA NELLA STATUS BAR
-            .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
-            .setWhen(System.currentTimeMillis() + (seconds * 1000L))
-
-        // Su Android 12+ questo attiva specificamente la pillola per le Ongoing Activities
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-        }
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(iconRes)
+            .setContentTitle("Recupero in corso")
+            .setContentText(exercise)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true) // Impedisce lo swipe
 
         manager.notify(NOTIFICATION_ID, builder.build())
     }
 
-    private fun stopChipNotification() {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.cancel(NOTIFICATION_ID)
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expectedComponentName = ComponentName(this, DynamicIslandAccessibilityService::class.java)
+        val enabledServicesSetting = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        val colonSplitter = TextUtils.SimpleStringSplitter(':')
+        colonSplitter.setString(enabledServicesSetting)
+        while (colonSplitter.hasNext()) {
+            val componentNameString = colonSplitter.next()
+            val enabledService = ComponentName.unflattenFromString(componentNameString)
+            if (enabledService != null && enabledService == expectedComponentName) return true
+        }
+        return false
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(islandActionReceiver)
     }
 }

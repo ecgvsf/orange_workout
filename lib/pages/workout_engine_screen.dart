@@ -21,6 +21,10 @@ import '../widgets/workout_engine/completed_exercise_row.dart';
 import '../pages/workout_summary_page.dart';
 import '../services/native_timer_chip_service.dart';
 
+const MethodChannel _islandChannel = MethodChannel(
+  'com.orange_workout/dynamic_island',
+);
+
 class CompletedExerciseSummary {
   final String exerciseName;
   final String muscleGroup;
@@ -100,6 +104,15 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
     _startTime = DateTime.now();
     _startSessionTimer();
 
+    _islandChannel.setMethodCallHandler((call) async {
+      if (call.method == "addTime") {
+        final int addedSecs = call.arguments as int;
+        _addRestTimeFromIsland(addedSecs);
+      }
+    });
+
+    _checkDynamicIslandPermissions();
+
     // Inizializzazione sincrona immediata prima del primo frame
     if (widget.selectedRoutine != null &&
         widget.selectedRoutine!.exercises.isNotEmpty) {
@@ -120,12 +133,80 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
     });
   }
 
-  @override
+  Future _checkDynamicIslandPermissions() async {
+    if (!Platform.isAndroid) return;
+
+    final bool isEnabled = await _islandChannel.invokeMethod('checkPermission');
+    if (!isEnabled && mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder:
+            (ctx) => AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: const Text(
+                'Dynamic Island',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: const Text(
+                'Per mostrare la pillola col timer quando esci dall\'app, attiva il servizio di Accessibilità per Orange Workout nelle impostazioni.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text(
+                    'Ignora',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF9700),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _islandChannel.invokeMethod('openSettings');
+                  },
+                  child: const Text(
+                    'Impostazioni',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+      );
+    }
+  }
+
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Quando rientri nell'applicazione o sblocchi lo schermo
     if (state == AppLifecycleState.resumed) {
       _syncAllTimers();
+      if (Platform.isAndroid) {
+        _islandChannel.invokeMethod('hideIsland'); // Nasconde la pillola in app
+      }
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      if (Platform.isAndroid && _restRemaining > 0) {
+        // Mostra la pillola solo se esci dall'app e il timer è attivo
+        _islandChannel.invokeMethod('showIsland', {'seconds': _restRemaining});
+      }
     }
+  }
+
+  void _addRestTimeFromIsland(int extraSeconds) {
+    if (_restRemaining <= 0 && _restEndTime == null) return;
+    final now = DateTime.now();
+    final baseTime =
+        (_restEndTime != null && _restEndTime!.isAfter(now))
+            ? _restEndTime!
+            : now;
+
+    setState(() {
+      _restEndTime = baseTime.add(Duration(seconds: extraSeconds));
+      _restRemaining = _restEndTime!.difference(now).inSeconds;
+      _initialRestDuration += extraSeconds;
+    });
   }
 
   /// Sincronizza sia la durata totale della sessione sia il conto alla rovescia di recupero
@@ -257,14 +338,12 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
       _restEndTime = now.add(Duration(seconds: seconds));
     });
 
-    // Notifica di sistema per Android / iOS (Singola notifica unificata)
-    WorkoutNotificationService().startRestNotification(
-      seconds: seconds,
-      exerciseName: _currentExerciseName,
-    );
-
-    // Live Activity per iOS
-    if (Platform.isIOS) {
+    if (Platform.isAndroid) {
+      // Crea SOLO la notifica silenziosa (nessuna pillola finché non esci dall'app)
+      _islandChannel.invokeMethod('startSilentNotification', {
+        'exerciseName': _currentExerciseName,
+      });
+    } else if (Platform.isIOS) {
       if (_activeLiveActivityId != null) {
         await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
         _activeLiveActivityId = null;
@@ -292,6 +371,12 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
         });
       }
     });
+
+    // Notifica di sistema per Android / iOS (Singola notifica unificata)
+    WorkoutNotificationService().startRestNotification(
+      seconds: seconds,
+      exerciseName: _currentExerciseName,
+    );
   }
 
   void _onRestCompleted() {
@@ -318,7 +403,9 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
     _restTimer?.cancel();
     _restEndTime = null;
     await WorkoutNotificationService().cancelRestNotifications();
-    if (Platform.isIOS && _activeLiveActivityId != null) {
+    if (Platform.isAndroid) {
+      await _islandChannel.invokeMethod('stopIsland');
+    } else if (Platform.isIOS && _activeLiveActivityId != null) {
       await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
       _activeLiveActivityId = null;
     }

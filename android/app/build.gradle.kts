@@ -31,6 +31,13 @@ android {
         versionName = flutter.versionName
     }
 
+    buildFeatures {
+        compose = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.4.8" // Aggiorna questo valore
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
@@ -42,6 +49,20 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    implementation(composeBom)
+    
+    // Core di Jetpack Compose richiesti dalla Dynamic Island
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.animation:animation")
+    implementation("androidx.compose.foundation:foundation")
+    
+    // Integrazione Activity e Ciclo di Vita (Lifecycle/SavedState)
+    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    implementation("androidx.savedstate:savedstate-ktx:1.2.1")
 }
 
 flutter {

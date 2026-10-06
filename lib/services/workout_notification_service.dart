@@ -63,21 +63,7 @@ class WorkoutNotificationService {
         await (androidImpl as dynamic).requestNotificationsPermission();
       } catch (_) {}
 
-      // 1. CANALE DEDICATO ALLA PILLOLA / FOREGROUND
-      await androidImpl.createNotificationChannel(
-        const AndroidNotificationChannel(
-          'workout_rest_fgs_v5', // ID nuovo per forzare il refresh delle impostazioni
-          'Timer Recupero (Pillola e Barra)',
-          description:
-              'Gestisce il cronometro continuo e la pillola in barra di stato',
-          importance: Importance.max, // Indispensabile per attivare il chip
-          enableVibration: false,
-          playSound: false,
-          showBadge: false,
-        ),
-      );
-
-      // 2. CANALE SVEGLIA FINE RECUPERO
+      // Manteniamo solo il canale per la sveglia di fine recupero
       await androidImpl.createNotificationChannel(
         AndroidNotificationChannel(
           'workout_rest_alarm_v3',
@@ -108,56 +94,10 @@ class WorkoutNotificationService {
     final ByteArrayAndroidBitmap? largeIconBitmap =
         _logoBytes != null ? ByteArrayAndroidBitmap(_logoBytes!) : null;
 
-    if (Platform.isAndroid) {
-      final targetTimeMillis =
-          DateTime.now().add(Duration(seconds: seconds)).millisecondsSinceEpoch;
+    // LA NOTIFICA "LIVE" PER ANDROID E' STATA RIMOSSA QUI.
+    // VIENE ORA GESTITA IN KOTLIN PER LA DYNAMIC ISLAND.
 
-      final liveDetails = AndroidNotificationDetails(
-        'workout_rest_fgs_v5',
-        'Timer Recupero (Pillola e Barra)',
-        channelDescription: 'Visualizza il tempo di recupero residuo',
-        icon: '@drawable/logo_monochromatic',
-        largeIcon: largeIconBitmap,
-        importance: Importance.max,
-        priority: Priority.max,
-        visibility: NotificationVisibility.public,
-        ongoing: true,
-        autoCancel: false,
-        showWhen: true,
-        when: targetTimeMillis,
-        usesChronometer: true,
-        chronometerCountDown: true,
-        category: AndroidNotificationCategory.stopwatch,
-        onlyAlertOnce: true,
-        timeoutAfter: seconds * 1000,
-      );
-
-      final AndroidFlutterLocalNotificationsPlugin? androidImpl =
-          _plugin
-              .resolvePlatformSpecificImplementation<
-                AndroidFlutterLocalNotificationsPlugin
-              >();
-
-      if (androidImpl != null) {
-        try {
-          await androidImpl.startForegroundService(
-            100,
-            'Recupero • $exerciseName',
-            'Tempo rimanente',
-            notificationDetails: liveDetails,
-          );
-        } catch (_) {
-          await _plugin.show(
-            100,
-            'Recupero • $exerciseName',
-            'Tempo rimanente',
-            NotificationDetails(android: liveDetails),
-          );
-        }
-      }
-    }
-
-    // 2. Allarme di fine recupero (ID: 101)
+    // Allarme di fine recupero (ID: 101) - Mantenuto per Android e iOS
     final androidFinalDetails = AndroidNotificationDetails(
       'workout_rest_alarm_v3',
       'Avviso Fine Recupero (Allarme)',
@@ -182,6 +122,7 @@ class WorkoutNotificationService {
 
     AndroidScheduleMode scheduleMode =
         AndroidScheduleMode.inexactAllowWhileIdle;
+
     if (Platform.isAndroid) {
       final AndroidFlutterLocalNotificationsPlugin? androidImpl =
           _plugin
@@ -198,6 +139,7 @@ class WorkoutNotificationService {
     }
 
     try {
+      // Programma l'allarme che suonerà quando il tempo scade
       await _plugin.zonedSchedule(
         101,
         'Tempo Scaduto! ⏱️',
@@ -244,18 +186,7 @@ class WorkoutNotificationService {
   }
 
   Future cancelRestNotifications() async {
-    await _plugin.cancel(100);
-    await _plugin.cancel(101);
-
-    if (Platform.isAndroid) {
-      final AndroidFlutterLocalNotificationsPlugin? androidImpl =
-          _plugin
-              .resolvePlatformSpecificImplementation<
-                AndroidFlutterLocalNotificationsPlugin
-              >();
-      try {
-        await (androidImpl as dynamic)?.stopForegroundService();
-      } catch (_) {}
-    }
+    await _plugin.cancel(101); // Cancella l'allarme schedulato
+    await _plugin.cancel(102); // Cancella l'allarme istantaneo (se presente)
   }
 }

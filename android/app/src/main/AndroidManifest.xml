@@ -9,7 +9,7 @@
     <!-- Vibrazione al termine del timer -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
@@ -40,13 +40,16 @@
         </activity>
         <!-- Servizio in Foreground obbligatorio per la pillola e il timer continuo -->
             <service
-                android:name="com.dexterous.flutterlocalnotifications.ForegroundService"
-                android:foregroundServiceType="specialUse"
-                android:exported="false">
-                <property
-                    android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                    android:value="Rest timer countdown for workout intervals." />
-            </service>
+            android:name=".DynamicIslandAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
 
         <!-- Don't delete the meta-data below.
@@ -54,6 +57,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <meta-data 
+            android:name="android.accessibilityservice" 
+            android:resource="@xml/accessibility_service_config" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

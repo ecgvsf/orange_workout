@@ -97,10 +97,15 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen>
       return 'bicipiti';
     if (lower.contains('tricipit') || lower.contains('triceps'))
       return 'tricipiti';
+
+    // Gestione specifica degli addominali per gli ID corretti dell'SVG
+    if (lower.contains('obliqu') || lower.contains('obliques'))
+      return 'addominali-laterali';
     if (lower.contains('addom') ||
         lower.contains('core') ||
         lower.contains('abs'))
-      return 'addominali';
+      return 'addominali-centrali';
+
     if (lower.contains('quadricipit') || lower.contains('quad'))
       return 'quadricipiti';
     if (lower.contains('femorali') || lower.contains('hamstring'))
@@ -111,6 +116,14 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen>
     if (lower.contains('lomb')) return 'lombari';
     if (lower.contains('avambracc') || lower.contains('forearm'))
       return 'avambracci';
+
+    // Nuovi distretti
+    if (lower.contains('adduttor') || lower.contains('adductor'))
+      return 'adduttori';
+    if (lower.contains('abduttor') || lower.contains('abductor'))
+      return 'abduttori';
+    if (lower.contains('soleo') || lower.contains('soleus')) return 'soleo';
+
     return lower;
   }
 
