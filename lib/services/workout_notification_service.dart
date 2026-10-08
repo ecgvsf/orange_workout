@@ -150,7 +150,20 @@ class WorkoutNotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-    } catch (_) {}
+    } catch (e) {
+      // FALLBACK: Se Android blocca l'allarme esatto, usa quello inesatto (inexactAllowWhileIdle)
+      // Senza questo blocco, se mancano i permessi la notifica non suonerà MAI.
+      await _plugin.zonedSchedule(
+        101,
+        'Tempo Scaduto! ⏱️',
+        'Inizia la prossima serie di $exerciseName',
+        scheduledDate,
+        NotificationDetails(android: androidFinalDetails, iOS: iosFinalDetails),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+        UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    }
   }
 
   Future triggerInstantAlarm(String exerciseName) async {

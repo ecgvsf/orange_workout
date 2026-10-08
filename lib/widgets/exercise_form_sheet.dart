@@ -50,10 +50,11 @@ class _ExerciseFormSheetState extends State<ExerciseFormSheet> {
   String? _currentImagePath;
   late List<String> _selectedSecondaryMuscles;
 
-  final List<String> _muscleCategories = const [
+  // Catalogo unificato dei gruppi muscolari
+  final List<String> _muscleCategories = [
     'Petto',
     'Dorso',
-    'Alta Schiena',
+    'Trapezio',
     'Lombari',
     'Spalle',
     'Bicipiti',
@@ -63,6 +64,10 @@ class _ExerciseFormSheetState extends State<ExerciseFormSheet> {
     'Glutei',
     'Polpacci',
     'Addome',
+    'Obliqui',
+    'Adduttori',
+    'Abduttori',
+    'Soleo',
   ];
 
   final List<String> _equipmentOptions = const [
@@ -71,6 +76,7 @@ class _ExerciseFormSheetState extends State<ExerciseFormSheet> {
     'Cavi',
     'Macchinario',
     'Corpo Libero',
+    'Elastici',
     'Altro',
   ];
 
@@ -78,6 +84,9 @@ class _ExerciseFormSheetState extends State<ExerciseFormSheet> {
   void initState() {
     super.initState();
     final ex = widget.existing;
+    _muscleCategories.sort(
+          (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
+    );
     _nameController = TextEditingController(text: ex?.name ?? '');
     _selectedMuscle = ex?.muscleGroup ?? _muscleCategories.first;
     _isCompound = ex?.isCompound ?? false;

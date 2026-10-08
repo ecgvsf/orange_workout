@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,9 +7,9 @@ import 'package:isar/isar.dart';
 import '../../models/stats_model.dart';
 import '../../models/exercise.dart';
 import '../../models/workout_set.dart';
-import '../../models/session.dart';
 import '../exercise_filterable_list_view.dart';
 import '../../utils/time_formatters.dart';
+import 'stats_chart_utils.dart';
 
 class ExerciseSessionData {
   final String date;
@@ -58,7 +57,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
   String? _selectedExerciseImagePath;
   String _selectedExerciseSubtitle = '';
 
-  String _weightUnit = 'kg'; // <-- Aggiunto per il tracciamento
+  String _weightUnit = 'kg';
 
   List<ExerciseSessionData> _realHistory = [];
   double _exercisePrWeight = 0.0;
@@ -85,15 +84,8 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.filter != widget.filter) {
       setState(() => _selectedPointIndex = -1);
-      _animController.forward(from: 0.0);
     }
     _fetchDatabaseExerciseData();
-  }
-
-  @override
-  void disposeValidate() {
-    _animController.dispose();
-    super.dispose();
   }
 
   @override
@@ -102,24 +94,20 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
     super.dispose();
   }
 
-  double _calculateSetScore(WorkoutSet s, double weight) {
-    if (s.holdSeconds != null && s.holdSeconds! > 0) {
-      if (weight > 0) {
-        return s.holdSeconds!.toDouble() * (1.0 + (weight / 30.0));
-      }
-      return s.holdSeconds!.toDouble();
-    }
-
-    final int reps = s.reps ?? 0;
-    if (weight > 0) {
-      return weight * (1.0 + (0.0333 * reps));
-    }
-    return reps.toDouble();
+  String _formatTitleCase(String text) {
+    if (text.isEmpty) return text;
+    return text
+        .split(' ')
+        .map((word) {
+          if (word.isEmpty) return word;
+          return word[0].toUpperCase() + word.substring(1).toLowerCase();
+        })
+        .join(' ');
   }
 
   Future<void> _fetchDatabaseExerciseData() async {
     if (widget.isar == null) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       return;
     }
 
@@ -138,7 +126,6 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
     }
 
     final savedExercise = prefs.getString('last_selected_progress_exercise');
-
     if (_selectedExercise == null) {
       if (savedExercise != null &&
           exercisesInDb.any((e) => e.name == savedExercise)) {
@@ -155,27 +142,19 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
       orElse: () => exercisesInDb.first,
     );
     _selectedExerciseImagePath = currentExObj.imagePath;
-    _selectedExerciseSubtitle = currentExObj.muscleGroup;
+
+    final String equipmentText =
+        (currentExObj.equipment != null &&
+                currentExObj.equipment!.trim().isNotEmpty)
+            ? _formatTitleCase(currentExObj.equipment!)
+            : (currentExObj.isCompound ? 'Multiarticolare' : 'Isolamento');
+    _selectedExerciseSubtitle = '${currentExObj.muscleGroup} • $equipmentText';
 
     final now = DateTime.now();
-    DateTime startDate;
-    switch (widget.filter) {
-      case TimeFilter.week:
-        startDate = DateTime(
-          now.year,
-          now.month,
-          now.day,
-        ).subtract(Duration(days: now.weekday - 1));
-        break;
-      case TimeFilter.month:
-        startDate = DateTime(now.year, now.month, 1);
-        break;
-      case TimeFilter.year:
-        startDate = DateTime(now.year, 1, 1);
-        break;
-    }
+    final startDate = calculateRollingStartDate(now, widget.filter);
+    final endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
-    final allSets =
+    final allTimeSets =
         await widget.isar!.workoutSets
             .filter()
             .isWarmupEqualTo(false)
@@ -185,76 +164,58 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
             )
             .findAll();
 
+    await Future.wait([
+      for (final s in allTimeSets)
+        if (!s.session.isLoaded) s.session.load(),
+    ]);
+
     double allTimeMaxWeight = 0.0;
     bool isTimed = false;
 
-    final Map<DateTime, List<WorkoutSet>> setsByDay = {};
-
-    for (final s in allSets) {
+    for (final s in allTimeSets) {
       if (s.holdSeconds != null && s.holdSeconds! > 0) isTimed = true;
-
-      double convertedWeight = s.weight;
-      if (_weightUnit == 'lbs') {
-        convertedWeight *= 2.20462;
-      }
-
-      if (convertedWeight > allTimeMaxWeight)
-        allTimeMaxWeight = convertedWeight;
-
-      await s.session.load();
-      final session = s.session.value;
-      if (session == null) continue;
-
-      final sessionDate = session.date;
-      final dayKey = DateTime(
-        sessionDate.year,
-        sessionDate.month,
-        sessionDate.day,
-      );
-
-      if (dayKey.isBefore(startDate) ||
-          dayKey.isAfter(now.add(const Duration(days: 1)))) {
-        continue;
-      }
-
-      setsByDay.putIfAbsent(dayKey, () => []).add(s);
+      double w = s.weight;
+      if (_weightUnit == 'lbs') w *= 2.20462;
+      if (w > allTimeMaxWeight) allTimeMaxWeight = w;
     }
+
+    final setsByDay = filterAndGroupSetsByDay(
+      sets: allTimeSets,
+      startDate: startDate,
+      endDate: endDate,
+    );
 
     final sortedDates = setsByDay.keys.toList()..sort();
     final List<ExerciseSessionData> historyPoints = [];
 
     for (final day in sortedDates) {
       final daySets = setsByDay[day]!;
-
-      WorkoutSet? bestSet;
-      double bestDayScore = 0.0;
-      double bestSetWeight =
-          0.0; // Teniamo traccia del peso convertito per il popup
+      WorkoutSet? bestDaySet;
+      double bestDayScore = -1.0;
+      double bestDayConvertedWeight = 0.0;
 
       for (final s in daySets) {
         double w = s.weight;
         if (_weightUnit == 'lbs') w *= 2.20462;
 
-        final score = _calculateSetScore(s, w);
+        final double score = calculateSetScore(s, w);
         if (score >= bestDayScore) {
           bestDayScore = score;
-          bestSet = s;
-          bestSetWeight = w;
+          bestDaySet = s;
+          bestDayConvertedWeight = w;
         }
       }
 
-      if (bestSet != null) {
+      if (bestDaySet != null) {
         historyPoints.add(
           ExerciseSessionData(
-            date: _formatDate(day),
+            date: formatShortDate(day, widget.filter),
             dateTime: day,
             score: (bestDayScore * 10).round() / 10,
-            weight: double.parse(
-              bestSetWeight.toStringAsFixed(1),
-            ), // Usiamo il peso convertito
-            reps: bestSet.reps,
-            holdSeconds: bestSet.holdSeconds,
-            rpe: bestSet.rpe ?? 8,
+            weight: double.parse(bestDayConvertedWeight.toStringAsFixed(1)),
+            reps: bestDaySet.reps,
+            holdSeconds: bestDaySet.holdSeconds,
+            rpe: bestDaySet.rpe ?? 8,
           ),
         );
       }
@@ -263,33 +224,11 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
     if (mounted) {
       setState(() {
         _isTimedExercise = isTimed;
-        _exercisePrWeight = allTimeMaxWeight;
+        _exercisePrWeight = (allTimeMaxWeight * 10).round() / 10;
         _realHistory = historyPoints;
         _isLoading = false;
       });
     }
-  }
-
-  String _formatDate(DateTime d) {
-    if (widget.filter == TimeFilter.week) {
-      switch (d.weekday) {
-        case DateTime.monday:
-          return 'Lun';
-        case DateTime.tuesday:
-          return 'Mar';
-        case DateTime.wednesday:
-          return 'Mer';
-        case DateTime.thursday:
-          return 'Gio';
-        case DateTime.friday:
-          return 'Ven';
-        case DateTime.saturday:
-          return 'Sab';
-        case DateTime.sunday:
-          return 'Dom';
-      }
-    }
-    return '${d.day}/${d.month}';
   }
 
   String _calculateTrendLabel(List<ExerciseSessionData> list) {
@@ -390,7 +329,6 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_selected_progress_exercise', selected);
       _fetchDatabaseExerciseData();
-      _animController.forward(from: 0.0);
     }
   }
 
@@ -476,7 +414,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: _buildThumbnail(_selectedExerciseImagePath),
+                      child: buildExerciseThumbnail(_selectedExerciseImagePath),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -520,7 +458,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'PR ${_exercisePrWeight.toStringAsFixed(1)} $_weightUnit', // Cambiato
+                        'PR ${_exercisePrWeight.toStringAsFixed(1)} $_weightUnit',
                         style: const TextStyle(
                           color: Color(0xFFFF9700),
                           fontWeight: FontWeight.bold,
@@ -617,7 +555,7 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
                           builder: (context, child) {
                             return CustomPaint(
                               size: Size(chartWidth, chartHeight),
-                              painter: _WorkloadChartPainter(
+                              painter: GenericLineChartPainter(
                                 points: points,
                                 selectedIndex: _selectedPointIndex,
                                 animationProgress: _curveAnimation.value,
@@ -632,73 +570,68 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
                       Positioned(
                         top: popupTop,
                         left: popupLeft,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 180),
-                          opacity: 1.0,
-                          child: Container(
-                            width: 140,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 8,
+                        child: Container(
+                          width: 140,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF141414),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFFFF9700),
+                              width: 1.5,
                             ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF141414),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: const Color(0xFFFF9700),
-                                width: 1.5,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.65),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.65),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      history[_selectedPointIndex].date,
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    history[_selectedPointIndex].date,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                    GestureDetector(
-                                      onTap:
-                                          () => setState(
-                                            () => _selectedPointIndex = -1,
-                                          ),
-                                      child: const Icon(
-                                        Icons.close_rounded,
-                                        color: Colors.white38,
-                                        size: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  history[_selectedPointIndex].holdSeconds !=
-                                          null
-                                      ? '${history[_selectedPointIndex].weight > 0 ? "${history[_selectedPointIndex].weight} $_weightUnit × " : ""}${formatTimeSeconds(history[_selectedPointIndex].holdSeconds!)}'
-                                      : '${history[_selectedPointIndex].weight} $_weightUnit × ${history[_selectedPointIndex].reps} reps',
-                                  style: const TextStyle(
-                                    color: Color(0xFFFF9700),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
                                   ),
+                                  GestureDetector(
+                                    onTap:
+                                        () => setState(
+                                          () => _selectedPointIndex = -1,
+                                        ),
+                                    child: const Icon(
+                                      Icons.close_rounded,
+                                      color: Colors.white38,
+                                      size: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                history[_selectedPointIndex].holdSeconds != null
+                                    ? '${history[_selectedPointIndex].weight > 0 ? "${history[_selectedPointIndex].weight} $_weightUnit × " : ""}${formatTimeSeconds(history[_selectedPointIndex].holdSeconds!)}'
+                                    : '${history[_selectedPointIndex].weight} $_weightUnit × ${history[_selectedPointIndex].reps} reps',
+                                style: const TextStyle(
+                                  color: Color(0xFFFF9700),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -721,225 +654,4 @@ class _ExerciseProgressCardState extends State<ExerciseProgressCard>
       ),
     );
   }
-}
-
-class _WorkloadChartPainter extends CustomPainter {
-  final List<double> points;
-  final int selectedIndex;
-  final double animationProgress;
-
-  _WorkloadChartPainter({
-    required this.points,
-    this.selectedIndex = -1,
-    this.animationProgress = 1.0,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
-
-    if (points.length == 1) {
-      final double x = size.width / 2;
-      final double y = size.height / 2;
-      final bool isSelected = selectedIndex == 0;
-
-      final Paint guidePaint =
-          Paint()
-            ..color = const Color(0xFFFF9700).withValues(alpha: 0.15)
-            ..strokeWidth = 1.5
-            ..style = PaintingStyle.stroke;
-
-      const double dashWidth = 5.0;
-      const double dashSpace = 4.0;
-      double startX = 16.0;
-      while (startX < size.width - 16.0) {
-        canvas.drawLine(
-          Offset(startX, y),
-          Offset(startX + dashWidth, y),
-          guidePaint,
-        );
-        startX += dashWidth + dashSpace;
-      }
-
-      if (isSelected) {
-        canvas.drawCircle(
-          Offset(x, y),
-          14 * animationProgress,
-          Paint()
-            ..color = const Color(0xFFFF9700).withValues(alpha: 0.25)
-            ..style = PaintingStyle.fill,
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          6 * animationProgress,
-          Paint()..color = const Color(0xFFFF9700),
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          6 * animationProgress,
-          Paint()
-            ..color = Colors.white
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.5,
-        );
-      } else {
-        canvas.drawCircle(
-          Offset(x, y),
-          5 * animationProgress,
-          Paint()..color = Colors.white,
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          5 * animationProgress,
-          Paint()
-            ..color = const Color(0xFFFF9700)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.0,
-        );
-      }
-      return;
-    }
-
-    final double minVal = points.reduce(min) * 0.9;
-    final double maxVal = points.reduce(max) * 1.1;
-    final double range = maxVal - minVal == 0 ? 1 : maxVal - minVal;
-
-    final double dx = size.width / (points.length - 1);
-
-    final Path path = Path();
-    final Path fillPath = Path();
-
-    final Paint linePaint =
-        Paint()
-          ..color = const Color(0xFFFF9700)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3.0
-          ..strokeCap = StrokeCap.round;
-
-    final Paint fillPaint =
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(
-                0xFFFF9700,
-              ).withValues(alpha: 0.30 * animationProgress),
-              const Color(0xFFFF9700).withValues(alpha: 0.0),
-            ],
-          ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    for (int i = 0; i < points.length; i++) {
-      final double x = i * dx;
-      final double normalized =
-          ((points[i] - minVal) / range) * animationProgress;
-      final double y = size.height - (normalized * size.height);
-
-      if (i == 0) {
-        path.moveTo(x, y);
-        fillPath.moveTo(x, size.height);
-        fillPath.lineTo(x, y);
-      } else {
-        final double prevX = (i - 1) * dx;
-        final double prevNormalized =
-            ((points[i - 1] - minVal) / range) * animationProgress;
-        final double prevY = size.height - (prevNormalized * size.height);
-        final double cX1 = prevX + (x - prevX) / 2;
-        final double cY1 = prevY;
-        final double cX2 = prevX + (x - prevX) / 2;
-        final double cY2 = y;
-
-        path.cubicTo(cX1, cY1, cX2, cY2, x, y);
-        fillPath.cubicTo(cX1, cY1, cX2, cY2, x, y);
-      }
-
-      if (i == points.length - 1) {
-        fillPath.lineTo(x, size.height);
-        fillPath.close();
-      }
-    }
-
-    canvas.drawPath(fillPath, fillPaint);
-    canvas.drawPath(path, linePaint);
-
-    for (int i = 0; i < points.length; i++) {
-      final double x = i * dx;
-      final double normalized =
-          ((points[i] - minVal) / range) * animationProgress;
-      final double y = size.height - (normalized * size.height);
-      final bool isSelected = i == selectedIndex;
-
-      if (isSelected) {
-        canvas.drawCircle(
-          Offset(x, y),
-          12,
-          Paint()
-            ..color = const Color(0xFFFF9700).withValues(alpha: 0.25)
-            ..style = PaintingStyle.fill,
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          6,
-          Paint()..color = const Color(0xFFFF9700),
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          6,
-          Paint()
-            ..color = Colors.white
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.5,
-        );
-      } else {
-        canvas.drawCircle(Offset(x, y), 4, Paint()..color = Colors.white);
-        canvas.drawCircle(
-          Offset(x, y),
-          4,
-          Paint()
-            ..color = const Color(0xFFFF9700)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.0,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _WorkloadChartPainter oldDelegate) =>
-      oldDelegate.selectedIndex != selectedIndex ||
-      oldDelegate.animationProgress != animationProgress ||
-      oldDelegate.points != points;
-}
-
-Widget _buildThumbnail(String? path) {
-  const fallback = Icon(
-    Icons.fitness_center_rounded,
-    color: Color(0xFFFF9700),
-    size: 24,
-  );
-
-  if (path == null || path.trim().isEmpty) return fallback;
-
-  if (path.startsWith('assets/')) {
-    final normalized = path
-        .replaceAll('_start.', '-start.')
-        .replaceAll('_peak.', '-peak.')
-        .replaceAll('_main.', '-main.');
-    return Image.asset(
-      normalized,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => fallback,
-    );
-  }
-
-  final file = File(path);
-  if (file.existsSync()) {
-    return Image.file(
-      file,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => fallback,
-    );
-  }
-
-  return fallback;
 }

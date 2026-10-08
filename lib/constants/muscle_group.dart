@@ -24,8 +24,8 @@ enum MuscleGroup {
     macroSplit: MacroSplit.pull,
     svgId: 'dorsali', // Combacia con <g id="dorsali">
   ),
-  trapezi(
-    label: 'Alta Schiena / Trapezi',
+  trapezio(
+    label: 'Alta Schiena / Trapezio',
     macroSplit: MacroSplit.pull,
     svgId: 'trapezio', // Combacia con <g id="trapezio">
   ),
@@ -78,7 +78,23 @@ enum MuscleGroup {
     label: 'Obliqui',
     macroSplit: MacroSplit.core,
     svgId: 'addominali-laterali',
+  ),
+  adduttori(
+    label: 'Adduttori',
+    macroSplit: MacroSplit.legs,
+    svgId: 'adduttori',
+  ),
+  abduttori(
+    label: 'Abduttori',
+    macroSplit: MacroSplit.legs,
+    svgId: 'abduttori',
+  ),
+  soleo(
+    label: 'Soleo',
+    macroSplit: MacroSplit.legs,
+    svgId: 'soleo',
   );
+
 
   final String label;
   final MacroSplit macroSplit;

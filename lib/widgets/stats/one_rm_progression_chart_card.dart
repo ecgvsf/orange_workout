@@ -1,16 +1,15 @@
 import 'dart:math';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
+import 'package:orange_workout/models/exercise.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/stats_model.dart';
-import '../../models/session.dart';
 import '../../models/workout_set.dart';
-import '../../models/exercise.dart';
 import '../exercise_filterable_list_view.dart';
 import '../../utils/time_formatters.dart';
+import 'stats_chart_utils.dart';
 
 class OneRmProgressionCard extends StatefulWidget {
   final Isar? isar;
@@ -40,7 +39,7 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
   List<Map<String, dynamic>> _realHistory = [];
   bool _isLoading = true;
   bool _isTimedExercise = false;
-  String _weightUnit = 'kg'; // <-- Aggiunto per il tracciamento
+  String _weightUnit = 'kg';
 
   @override
   void initState() {
@@ -58,52 +57,18 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
     _fetchReal1RmData();
   }
 
-  double _calculateSetScore(WorkoutSet s, double weight) {
-    if (s.holdSeconds != null && s.holdSeconds! > 0) {
-      if (weight > 0) {
-        return s.holdSeconds! * (1.0 + (weight / 30.0));
-      }
-      return s.holdSeconds!.toDouble();
-    }
-
-    if (s.reps != null && s.reps! > 0) {
-      if (weight > 0) {
-        return weight * (1.0 + (0.0333 * s.reps!));
-      }
-      return s.reps!.toDouble();
-    }
-
-    return 0.0;
-  }
-
   Future<void> _fetchReal1RmData() async {
     if (widget.isar == null || widget.selectedExercise.isEmpty) {
       if (mounted) setState(() => _isLoading = false);
       return;
     }
 
-    // Lettura delle preferenze di peso
     final prefs = await SharedPreferences.getInstance();
     _weightUnit = prefs.getString('global_weight_unit') ?? 'kg';
 
     final now = DateTime.now();
-    DateTime startDate;
-
-    switch (widget.filter) {
-      case TimeFilter.week:
-        startDate = DateTime(
-          now.year,
-          now.month,
-          now.day,
-        ).subtract(Duration(days: now.weekday - 1));
-        break;
-      case TimeFilter.month:
-        startDate = DateTime(now.year, now.month, 1);
-        break;
-      case TimeFilter.year:
-        startDate = DateTime(now.year, 1, 1);
-        break;
-    }
+    final startDate = calculateRollingStartDate(now, widget.filter);
+    final endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
     final allTimeSets =
         await widget.isar!.workoutSets
@@ -116,55 +81,46 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
             )
             .findAll();
 
+    await Future.wait([
+      for (final s in allTimeSets)
+        if (!s.session.isLoaded) s.session.load(),
+    ]);
+
     double allTimeMax = 0.0;
     bool isTimed = false;
-
-    final Map<DateTime, List<WorkoutSet>> setsByDay = {};
 
     for (final s in allTimeSets) {
       if (s.holdSeconds != null && s.holdSeconds! > 0) isTimed = true;
 
-      // Conversione istantanea se necessario
-      double convertedWeight = s.weight;
-      if (_weightUnit == 'lbs') {
-        convertedWeight *= 2.20462;
-      }
+      double w = s.weight;
+      if (_weightUnit == 'lbs') w *= 2.20462;
 
-      final score = _calculateSetScore(s, convertedWeight);
+      final score = calculateSetScore(s, w);
       if (score > allTimeMax) allTimeMax = score;
-
-      await s.session.load();
-      final session = s.session.value;
-      if (session == null) continue;
-
-      final sDate = session.date;
-      final dayKey = DateTime(sDate.year, sDate.month, sDate.day);
-
-      if (dayKey.isBefore(startDate) ||
-          dayKey.isAfter(now.add(const Duration(days: 1)))) {
-        continue;
-      }
-
-      setsByDay.putIfAbsent(dayKey, () => []).add(s);
     }
+
+    final setsByDay = filterAndGroupSetsByDay(
+      sets: allTimeSets,
+      startDate: startDate,
+      endDate: endDate,
+    );
 
     final sortedDates = setsByDay.keys.toList()..sort();
     final List<Map<String, dynamic>> historyPoints = [];
 
     for (final day in sortedDates) {
-      final daySets = setsByDay[day]!;
       double dayBest = 0.0;
-
-      for (final s in daySets) {
+      for (final s in setsByDay[day]!) {
         double w = s.weight;
         if (_weightUnit == 'lbs') w *= 2.20462;
-        final score = _calculateSetScore(s, w);
+
+        final score = calculateSetScore(s, w);
         if (score > dayBest) dayBest = score;
       }
 
       if (dayBest > 0) {
         historyPoints.add({
-          'date': _formatShortDate(day),
+          'date': formatShortDate(day, widget.filter),
           'val': (dayBest * 10).round() / 10,
         });
       }
@@ -178,28 +134,6 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
         _isLoading = false;
       });
     }
-  }
-
-  String _formatShortDate(DateTime d) {
-    if (widget.filter == TimeFilter.week) {
-      switch (d.weekday) {
-        case DateTime.monday:
-          return 'Lun';
-        case DateTime.tuesday:
-          return 'Mar';
-        case DateTime.wednesday:
-          return 'Mer';
-        case DateTime.thursday:
-          return 'Gio';
-        case DateTime.friday:
-          return 'Ven';
-        case DateTime.saturday:
-          return 'Sab';
-        case DateTime.sunday:
-          return 'Dom';
-      }
-    }
-    return '${d.day}/${d.month}';
   }
 
   Future<void> _showCompoundPickerModal() async {
@@ -284,8 +218,7 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
   Widget build(BuildContext context) {
     final List<double> points =
         _realHistory.map<double>((e) => (e['val'] as num).toDouble()).toList();
-
-    final unitLabel = _isTimedExercise ? 's' : '$_weightUnit 1RM'; // Dinamico
+    final unitLabel = _isTimedExercise ? 's' : '$_weightUnit 1RM';
 
     final CompoundExerciseInfo currentExercise = widget.compoundList.firstWhere(
       (e) => e.name.toLowerCase() == widget.selectedExercise.toLowerCase(),
@@ -384,7 +317,7 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: _buildThumbnail(currentExercise.imagePath),
+                      child: buildExerciseThumbnail(currentExercise.imagePath),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -459,8 +392,8 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
 
                 if (_selected1RMIndex >= 0 &&
                     _selected1RMIndex < points.length) {
-                  final double minVal = points.reduce(min) - 5;
-                  final double maxVal = points.reduce(max) + 5;
+                  final double minVal = points.reduce(min) * 0.9;
+                  final double maxVal = points.reduce(max) * 1.1;
                   final double range =
                       (maxVal - minVal == 0) ? 1 : (maxVal - minVal);
 
@@ -507,7 +440,7 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
                           builder: (context, child) {
                             return CustomPaint(
                               size: Size(chartWidth, chartHeight),
-                              painter: _LineChartPainter(
+                              painter: GenericLineChartPainter(
                                 points: points,
                                 selectedIndex: _selected1RMIndex,
                                 animationProgress: widget.animation.value,
@@ -522,86 +455,81 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
                       Positioned(
                         top: popupTop,
                         left: popupLeft,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 200),
-                          opacity: 1.0,
-                          child: Container(
-                            width: 130,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 7,
+                        child: Container(
+                          width: 130,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF141414),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFFFF9700),
+                              width: 1.5,
                             ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF141414),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: const Color(0xFFFF9700),
-                                width: 1.5,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.65),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.65),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _realHistory[_selected1RMIndex]['date'],
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    _realHistory[_selected1RMIndex]['date'],
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                    GestureDetector(
-                                      onTap:
-                                          () => setState(
-                                            () => _selected1RMIndex = -1,
-                                          ),
-                                      child: const Icon(
-                                        Icons.close_rounded,
-                                        color: Colors.white38,
-                                        size: 14,
-                                      ),
+                                  ),
+                                  GestureDetector(
+                                    onTap:
+                                        () => setState(
+                                          () => _selected1RMIndex = -1,
+                                        ),
+                                    child: const Icon(
+                                      Icons.close_rounded,
+                                      color: Colors.white38,
+                                      size: 14,
                                     ),
-                                  ],
-                                ),
-                                const SizedBox(height: 3),
-                                Row(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.baseline,
-                                  textBaseline: TextBaseline.alphabetic,
-                                  children: [
-                                    Text(
-                                      _isTimedExercise
-                                          ? '${formatTimeSeconds(points[_selected1RMIndex].round())} '
-                                          : '${points[_selected1RMIndex].toStringAsFixed(1)} ',
-                                      style: const TextStyle(
-                                        color: Color(0xFFFF9700),
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    _isTimedExercise
+                                        ? '${formatTimeSeconds(points[_selected1RMIndex].round())} '
+                                        : '${points[_selected1RMIndex].toStringAsFixed(1)} ',
+                                    style: const TextStyle(
+                                      color: Color(0xFFFF9700),
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                    Text(
-                                      unitLabel,
-                                      style: const TextStyle(
-                                        color: Colors.white38,
-                                        fontSize: 10,
-                                      ),
+                                  ),
+                                  Text(
+                                    unitLabel,
+                                    style: const TextStyle(
+                                      color: Colors.white38,
+                                      fontSize: 10,
                                     ),
-                                  ],
-                                ),
-                              ],
-                            ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -624,222 +552,4 @@ class _OneRmProgressionCardState extends State<OneRmProgressionCard> {
       ),
     );
   }
-}
-
-class _LineChartPainter extends CustomPainter {
-  final List<double> points;
-  final int selectedIndex;
-  final double animationProgress;
-
-  _LineChartPainter({
-    required this.points,
-    this.selectedIndex = -1,
-    this.animationProgress = 1.0,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
-
-    if (points.length == 1) {
-      final double x = size.width / 2;
-      final double y = size.height / 2;
-      final bool isSelected = selectedIndex == 0;
-
-      final Paint guidePaint =
-          Paint()
-            ..color = const Color(0xFFFF9700).withValues(alpha: 0.15)
-            ..strokeWidth = 1.5
-            ..style = PaintingStyle.stroke;
-
-      const double dashWidth = 5.0;
-      const double dashSpace = 4.0;
-      double startX = 16.0;
-      while (startX < size.width - 16.0) {
-        canvas.drawLine(
-          Offset(startX, y),
-          Offset(startX + dashWidth, y),
-          guidePaint,
-        );
-        startX += dashWidth + dashSpace;
-      }
-
-      if (isSelected) {
-        canvas.drawCircle(
-          Offset(x, y),
-          14 * animationProgress,
-          Paint()
-            ..color = const Color(0xFFFF9700).withValues(alpha: 0.3)
-            ..style = PaintingStyle.fill,
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          6 * animationProgress,
-          Paint()..color = const Color(0xFFFF9700),
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          6 * animationProgress,
-          Paint()
-            ..color = Colors.white
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.5,
-        );
-      } else {
-        canvas.drawCircle(
-          Offset(x, y),
-          5 * animationProgress,
-          Paint()..color = Colors.white,
-        );
-        canvas.drawCircle(
-          Offset(x, y),
-          5 * animationProgress,
-          Paint()
-            ..color = const Color(0xFFFF9700)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.0,
-        );
-      }
-      return;
-    }
-
-    final double minVal = points.reduce(min) - 5;
-    final double maxVal = points.reduce(max) + 5;
-    final double range = (maxVal - minVal == 0) ? 1 : (maxVal - minVal);
-
-    final double dx = size.width / (points.length - 1);
-
-    final Path path = Path();
-    final Path fillPath = Path();
-
-    final Paint linePaint =
-        Paint()
-          ..color = const Color(0xFFFF9700)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3.0
-          ..strokeCap = StrokeCap.round;
-
-    final Paint fillPaint =
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(
-                0xFFFF9700,
-              ).withValues(alpha: 0.35 * animationProgress),
-              const Color(0xFFFF9700).withValues(alpha: 0.0),
-            ],
-          ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    final Paint dotPaint = Paint()..color = Colors.white;
-    final Paint dotBorder =
-        Paint()
-          ..color = const Color(0xFFFF9700)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.0;
-
-    final Paint selectedHaloPaint =
-        Paint()
-          ..color = const Color(0xFFFF9700).withValues(alpha: 0.3)
-          ..style = PaintingStyle.fill;
-    final Paint selectedBorder =
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5;
-
-    for (int i = 0; i < points.length; i++) {
-      final double x = i * dx;
-      final double normalized =
-          ((points[i] - minVal) / range) * animationProgress;
-      final double y = size.height - (normalized * size.height);
-
-      if (i == 0) {
-        path.moveTo(x, y);
-        fillPath.moveTo(x, size.height);
-        fillPath.lineTo(x, y);
-      } else {
-        final double prevX = (i - 1) * dx;
-        final double prevNormalized =
-            ((points[i - 1] - minVal) / range) * animationProgress;
-        final double prevY = size.height - (prevNormalized * size.height);
-        final double cX1 = prevX + (x - prevX) / 2;
-        final double cY1 = prevY;
-        final double cX2 = prevX + (x - prevX) / 2;
-        final double cY2 = y;
-
-        path.cubicTo(cX1, cY1, cX2, cY2, x, y);
-        fillPath.cubicTo(cX1, cY1, cX2, cY2, x, y);
-      }
-
-      if (i == points.length - 1) {
-        fillPath.lineTo(x, size.height);
-        fillPath.close();
-      }
-    }
-
-    canvas.drawPath(fillPath, fillPaint);
-    canvas.drawPath(path, linePaint);
-
-    for (int i = 0; i < points.length; i++) {
-      final double x = i * dx;
-      final double normalized =
-          ((points[i] - minVal) / range) * animationProgress;
-      final double y = size.height - (normalized * size.height);
-      final bool isSelected = i == selectedIndex;
-
-      if (isSelected) {
-        canvas.drawCircle(Offset(x, y), 12, selectedHaloPaint);
-        canvas.drawCircle(
-          Offset(x, y),
-          6,
-          Paint()..color = const Color(0xFFFF9700),
-        );
-        canvas.drawCircle(Offset(x, y), 6, selectedBorder);
-      } else {
-        canvas.drawCircle(Offset(x, y), 4, dotPaint);
-        canvas.drawCircle(Offset(x, y), 4, dotBorder);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _LineChartPainter oldDelegate) =>
-      oldDelegate.selectedIndex != selectedIndex ||
-      oldDelegate.animationProgress != animationProgress ||
-      oldDelegate.points != points;
-}
-
-Widget _buildThumbnail(String? path) {
-  const fallback = Icon(
-    Icons.fitness_center_rounded,
-    color: Color(0xFFFF9700),
-    size: 24,
-  );
-
-  if (path == null || path.trim().isEmpty) return fallback;
-
-  if (path.startsWith('assets/')) {
-    final normalized = path
-        .replaceAll('_start.', '-start.')
-        .replaceAll('_peak.', '-peak.')
-        .replaceAll('_main.', '-main.');
-    return Image.asset(
-      normalized,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => fallback,
-    );
-  }
-
-  final file = File(path);
-  if (file.existsSync()) {
-    return Image.file(
-      file,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => fallback,
-    );
-  }
-
-  return fallback;
 }

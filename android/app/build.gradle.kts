@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.example.orange_workout"
     compileSdk = flutter.compileSdkVersion
+    buildToolsVersion = "37.0.0"
     ndkVersion = "27.0.12077973"
 
     compileOptions {

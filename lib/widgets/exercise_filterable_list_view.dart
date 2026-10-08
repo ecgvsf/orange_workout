@@ -79,12 +79,19 @@ class _ExerciseFilterableListViewState
     }
 
     final groups =
-        list
-            .map((e) => e.muscleGroup.trim())
-            .where((g) => g.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
+    list
+        .map((e) {
+      final g = e.muscleGroup.trim();
+      if (g.isEmpty) return g;
+      // Capitalizza automaticamente la prima lettera
+      return g[0].toUpperCase() + g.substring(1);
+    })
+        .where((g) => g.isNotEmpty)
+        .toSet()
+        .toList()
+    // Ordina alfabeticamente ignorando la differenza tra maiuscole e minuscole
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
 
     if (mounted) {
       setState(() {

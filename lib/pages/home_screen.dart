@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:isar/isar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/exercise.dart';
 import '../models/session.dart';
@@ -25,6 +26,9 @@ class _HomeScreenState extends State<HomeScreen>
   late DateTime _selectedDate;
   late List<DateTime> _currentWeek;
 
+
+  BodyGender _userGender = BodyGender.male;
+
   @override
   bool get wantKeepAlive => true; // Mantiene vivi la heatmap e i grafici
 
@@ -44,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   StreamSubscription? _setSubscription;
   StreamSubscription? _sessionSubscription;
+  StreamSubscription? _profileSubscription;
 
   final List<String> _dayNames = [
     'Lun',
@@ -72,6 +77,9 @@ class _HomeScreenState extends State<HomeScreen>
       _setSubscription = widget.isar!.workoutSets.watchLazy().listen((_) {
         _loadDataFromDatabase();
       });
+      _profileSubscription = widget.isar!.userProfiles.watchLazy().listen((_) {
+        _loadDataFromDatabase();
+      });
     }
   }
 
@@ -79,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     _sessionSubscription?.cancel();
     _setSubscription?.cancel();
+    _profileSubscription?.cancel();
     super.dispose();
   }
 
@@ -104,6 +113,10 @@ class _HomeScreenState extends State<HomeScreen>
     final user = await widget.isar!.userProfiles.where().findFirst();
     final name =
         (user != null && user.name.trim().isNotEmpty) ? user.name : 'Andrea';
+
+    final prefs = await SharedPreferences.getInstance();
+    final genderStr = prefs.getString('user_gender') ?? 'Maschio';
+    final currentGender = genderStr == 'Femmina' ? BodyGender.female : BodyGender.male;
 
     // 2. Calcolo intervallo della settimana visualizzata (da Lunedì 00:00 a Domenica 23:59:59)
     final monday = _currentWeek.first;
@@ -195,6 +208,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) {
       setState(() {
         _userName = name;
+        _userGender = currentGender;
         _dailyVolumes = tempVolumes;
         _weeklyMuscleWorkouts = tempMuscleCount;
         _isLoading = false;
@@ -322,6 +336,7 @@ class _HomeScreenState extends State<HomeScreen>
                               child: MuscleHeatmapCard(
                                 title: 'HeatMap',
                                 weeklyWorkouts: _weeklyMuscleWorkouts,
+                                initialGender: _userGender,
                               ),
                             ),
                             const SizedBox(height: 12),

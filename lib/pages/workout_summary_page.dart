@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/routine_template.dart';
 import '../models/session.dart';
@@ -30,6 +32,8 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen>
   late final AnimationController _animController;
   late final Animation<double> _scaleAnimation;
   late final Animation<double> _fadeAnimation;
+
+  BodyGender _userGender = BodyGender.male;
 
   bool _isLoading = true;
   int _totalDurationSeconds = 0;
@@ -77,6 +81,14 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen>
     _calculateSessionStats();
     _animController.forward();
     HapticFeedback.heavyImpact();
+
+    _loadGender();
+  }
+
+  Future<void> _loadGender() async {
+    final prefs = await SharedPreferences.getInstance();
+    final genderStr = prefs.getString('user_gender') ?? 'Maschio';
+    _userGender = genderStr == 'Femmina' ? BodyGender.female : BodyGender.male;
   }
 
   @override
@@ -765,6 +777,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen>
                         child: MuscleHeatmapCard(
                           title: 'Focus Muscolare Sessione',
                           weeklyWorkouts: _sessionMuscleCounts,
+                          initialGender: _userGender,
                         ),
                       ),
                       const SizedBox(height: 16),

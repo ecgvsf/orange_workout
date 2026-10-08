@@ -28,22 +28,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
   String _selectedGroup = 'Tutti';
   String _searchQuery = '';
 
-  // Catalogo unificato dei gruppi muscolari
-  final List<String> _muscleCategories = const [
-    'Petto',
-    'Dorso',
-    'Alta Schiena',
-    'Lombari',
-    'Spalle',
-    'Bicipiti',
-    'Tricipiti',
-    'Quadricipiti',
-    'Femorali',
-    'Glutei',
-    'Polpacci',
-    'Addome',
-  ];
-
   @override
   void initState() {
     super.initState();

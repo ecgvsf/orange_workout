@@ -2,6 +2,7 @@ package com.example.orange_workout
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent // <-- Aggiungi questa riga
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -18,6 +19,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.orange_workout/dynamic_island"
     private val NOTIFICATION_ID = 999
+    private val SUMMARY_NOTIFICATION_ID = 1000
     private var methodChannel: MethodChannel? = null
 
     // Ascolta i comandi provenienti dalla Dynamic Island e li gira a Flutter
@@ -70,6 +72,12 @@ class MainActivity: FlutterActivity() {
                     sendBroadcast(Intent("HIDE_ISLAND_ACTION"))
                     result.success(true)
                 }
+                "showEndRestNotification" -> {
+                    val title = call.argument<String>("title") ?: "Tempo Scaduto!"
+                    val body = call.argument<String>("body") ?: "Inizia la prossima Serie."
+                    showEndRestNotification(title, body)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -89,7 +97,7 @@ class MainActivity: FlutterActivity() {
             manager.createNotificationChannel(channel)
         }
 
-        val iconRes = resources.getIdentifier("ic_launcher", "mipmap", packageName)
+        val iconRes = resources.getIdentifier("launcher_icon", "mipmap", packageName)
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(iconRes)
@@ -99,6 +107,44 @@ class MainActivity: FlutterActivity() {
             .setOngoing(true) // Impedisce lo swipe
 
         manager.notify(NOTIFICATION_ID, builder.build())
+    }
+
+    private fun showEndRestNotification(title: String, body: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "workout_end_rest_summary_channel"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // IMPORTANCE_HIGH per far scendere il banner
+            val channel = NotificationChannel(channelId, "Recupero Terminato", NotificationManager.IMPORTANCE_HIGH).apply {
+                enableVibration(true)
+                setShowBadge(true)
+            }
+            manager.createNotificationChannel(channel)
+        }
+
+        val iconRes = resources.getIdentifier("launcher_icon", "mipmap", packageName)
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(iconRes)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true) // Scompare quando ci clicchi
+            .setContentIntent(pendingIntent)
+
+        manager.notify(SUMMARY_NOTIFICATION_ID, builder.build())
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {

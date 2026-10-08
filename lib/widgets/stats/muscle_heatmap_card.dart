@@ -35,7 +35,21 @@ class _MuscleHeatmapCardState extends State<MuscleHeatmapCard> {
   @override
   void didUpdateWidget(covariant MuscleHeatmapCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    bool needsUpdate = false;
+
+    // Se il genere in ingresso è cambiato (dalla HomeScreen)
+    if (oldWidget.initialGender != widget.initialGender) {
+      _selectedGender = widget.initialGender;
+      needsUpdate = true;
+    }
+
+    // Se i dati degli allenamenti sono cambiati
     if (oldWidget.weeklyWorkouts != widget.weeklyWorkouts) {
+      needsUpdate = true;
+    }
+
+    // Rigenera l'SVG solo se c'è stata una modifica
+    if (needsUpdate) {
       _generateHeatmapSvg();
     }
   }
@@ -51,16 +65,16 @@ class _MuscleHeatmapCardState extends State<MuscleHeatmapCard> {
     setState(() => _isLoading = true);
 
     final assetPath =
-        _selectedGender == BodyGender.male
-            ? 'assets/images/male_muscles.svg'
-            : 'assets/images/female_muscles.svg';
+    _selectedGender == BodyGender.male
+        ? 'assets/images/male_muscles.svg'
+        : 'assets/images/female_muscles.svg';
 
     String rawSvg = await rootBundle.loadString(assetPath);
 
     // 1. Uniforma la base neutra (testa, mani, piedi)
     rawSvg = rawSvg.replaceAllMapped(
       RegExp(r'<g class="altro"[^>]*fill="[^"]*"'),
-      (match) => '<g class="altro" fill="#2C2C2E"',
+          (match) => '<g class="altro" fill="#2C2C2E"',
     );
 
     const allMuscles = [
@@ -83,24 +97,21 @@ class _MuscleHeatmapCardState extends State<MuscleHeatmapCard> {
       'soleo',
     ];
 
-    // 2. Sostituisce fisicamente l'attributo fill sul tag <g id="..."> corrispondente
+    // 2. Sostituisce l'attributo fill sul tag <g> o <path> corrispondente
     for (final muscleId in allMuscles) {
       final int workoutCount = widget.weeklyWorkouts[muscleId] ?? 0;
       final String targetColor = _getFrequencyColor(workoutCount);
 
-      // Cerca il tag con quell'id e sostituisce il relativo attributo fill
-      final regex = RegExp('<g\\s+id="$muscleId"[^>]*fill="[^"]*"');
+      // Cerca il tag (sia <g> che <path>) con id esatto
+      final regex = RegExp('(<(?:g|path)\\s+[^>]*id="$muscleId"[^>]*?)fill="[^"]*"');
       rawSvg = rawSvg.replaceAllMapped(regex, (match) {
-        return '<g id="$muscleId" class="muscle" fill="$targetColor"';
+        return '${match.group(1)}fill="$targetColor"';
       });
 
-      // Se nel file sono presenti sottogruppi (es. deltoidi-posteriori, addominali-centrali, addominali-laterali),
-      // colora anche loro con lo stesso colore del gruppo padre
-      final subRegex = RegExp('<g\\s+id="$muscleId-[^"]*"[^>]*fill="[^"]*"');
+      // Cerca i sottogruppi (fascicoli muscolari) con ID del tipo 'muscleId-...' (es. trapezio-sinistro)
+      final subRegex = RegExp('(<(?:g|path)\\s+[^>]*id="$muscleId[-_][^"]*"[^>]*?)fill="[^"]*"');
       rawSvg = rawSvg.replaceAllMapped(subRegex, (match) {
-        final fullMatch = match.group(0)!;
-        final subId = RegExp(r'id="([^"]*)"').firstMatch(fullMatch)?.group(1);
-        return '<g id="$subId" class="muscle" fill="$targetColor"';
+        return '${match.group(1)}fill="$targetColor"';
       });
     }
 

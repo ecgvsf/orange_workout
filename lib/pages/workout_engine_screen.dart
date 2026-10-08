@@ -74,6 +74,7 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
 
   // Preferenze Globali
   WeightUnit _activeUnit = WeightUnit.kg;
+  WeightUnit _defaultGlobalUnit = WeightUnit.kg;
   double _globalMinWeightIncrement = 2.5;
 
   // Stato dell'esercizio corrente
@@ -235,6 +236,7 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
       setState(() {
         final savedUnit = prefs.getString('global_weight_unit') ?? 'kg';
         _activeUnit = savedUnit == 'lbs' ? WeightUnit.lbs : WeightUnit.kg;
+        _defaultGlobalUnit = savedUnit == 'lbs' ? WeightUnit.lbs : WeightUnit.kg;
         _globalMinWeightIncrement =
             prefs.getDouble('global_weight_increment') ?? 2.5;
         _restSeconds = prefs.getInt('global_rest_time') ?? 90;
@@ -384,10 +386,11 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
     _restEndTime = null;
     HapticFeedback.heavyImpact();
 
-    WorkoutNotificationService().cancelRestNotifications();
-    WorkoutNotificationService().triggerInstantAlarm(_currentExerciseName);
-
-    if (Platform.isIOS && _activeLiveActivityId != null) {
+    if (Platform.isAndroid) {
+      _islandChannel.invokeMethod('hideIsland');
+      _islandChannel.invokeMethod('stopSilentNotification');
+      _islandChannel.invokeMethod('showEndRestNotification');
+    } else if (Platform.isIOS && _activeLiveActivityId != null) {
       AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
       _activeLiveActivityId = null;
     }
@@ -402,13 +405,16 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
   void _skipRest() async {
     _restTimer?.cancel();
     _restEndTime = null;
-    await WorkoutNotificationService().cancelRestNotifications();
     if (Platform.isAndroid) {
-      await _islandChannel.invokeMethod('stopIsland');
+      await _islandChannel.invokeMethod('hideIsland');
+      await _islandChannel.invokeMethod('stopSilentNotification');
     } else if (Platform.isIOS && _activeLiveActivityId != null) {
       await AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
       _activeLiveActivityId = null;
     }
+
+    await WorkoutNotificationService().cancelRestNotifications();
+
     setState(() {
       _restRemaining = 0;
     });
@@ -444,6 +450,12 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
   }
 
   Future _loadGhostDataFor(String exerciseName) async {
+    if (mounted) {
+      setState(() {
+        _activeUnit = _defaultGlobalUnit;
+      });
+    }
+
     final matchingSets =
         await widget.isar.workoutSets
             .filter()
@@ -455,8 +467,19 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
       final lastSet = matchingSets.last;
 
       setState(() {
-        _currentWeight = lastSet.weight;
+        // 2. Il DB restituisce sempre i KG. Convertiamo in LBS se la preferenza globale lo richiede!
+        double fetchedWeight = lastSet.weight;
+        if (_activeUnit == WeightUnit.lbs) {
+          fetchedWeight = WeightConverter.toDisplay(fetchedWeight, WeightUnit.lbs);
+        }
+
+        _currentWeight = double.parse(fetchedWeight.toStringAsFixed(1));
         _currentReps = lastSet.reps ?? 8;
+      });
+    } else if (mounted) {
+      // 3. Se non ci sono dati passati, azzeriamo il peso mantenendo la nuova unità di misura
+      setState(() {
+        _currentWeight = 0.0;
       });
     }
   }
