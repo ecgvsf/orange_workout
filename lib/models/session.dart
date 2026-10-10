@@ -13,5 +13,7 @@ class Session {
   late DateTime startTime;
   DateTime? endTime;
 
+  int totalDurationSeconds = 0;
+
   final routine = IsarLink<RoutineTemplate>();
 }

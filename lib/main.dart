@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // 1. Importa il tema
 import 'theme/app_theme.dart';
@@ -71,6 +73,8 @@ class WorkoutManagerApp extends StatelessWidget {
   }
 }
 
+final ValueNotifier<int> globalRefreshNotifier = ValueNotifier<int>(0);
+
 class MainNavigationScreen extends StatefulWidget {
   final Isar isar;
 
@@ -124,6 +128,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     super.dispose();
   }
 
+  /// Esegue il refresh sia delle SharedPreferences sia dei listener/dati delle schede
+  Future<void> _handleGlobalRefresh() async {
+    HapticFeedback.lightImpact();
+
+    // 1. Ricarica forzata da disco delle SharedPreferences per invalidare la cache
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+
+    // 2. Incrementa il trigger notificando tutte le schede iscritte
+    globalRefreshNotifier.value++;
+
+    // Piccolo delay per una chiusura fluida del trigger
+    await Future.delayed(const Duration(milliseconds: 300));
+  }
+
   void _onTabSelected(int index) {
     if (index == 2) {
       // Tasto centrale "+": apri la modale di avvio allenamento
@@ -151,12 +170,32 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: const Color(0xFF000000),
       // IndexedStack preserva lo stato esatto di tutte le pagine,
       // mentre FadeTransition crea la transizione sfumata senza scorrimento
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: IndexedStack(index: _currentIndex, children: _screens),
+      body: RefreshIndicator(
+        color: const Color(0xFFFF9700),
+        backgroundColor: const Color(0xFF1E1E1E),
+        strokeWidth: 2.5,
+        // Disabilita l'elasticità/bouncing alla fine dello swipe
+        notificationPredicate: (notification) => notification.depth == 0,
+        onRefresh: _handleGlobalRefresh,
+        child: ScrollConfiguration(
+          // Rimuove qualsiasi effetto rimbalzo / glow elastico nei figli
+          behavior: const ScrollBehavior().copyWith(
+            physics: const ClampingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            overscroll: false,
+          ),
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
+          ),
+        ),
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(

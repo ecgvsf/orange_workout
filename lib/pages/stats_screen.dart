@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:isar/isar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../main.dart';
 import '../models/stats_model.dart';
 import '../models/session.dart';
 import '../models/workout_set.dart';
@@ -59,10 +60,10 @@ class _StatsScreenState extends State<StatsScreen>
   static const List<String> _muscleOrder = [
     'Petto',
     'Dorso',
-    'Gambe',
     'Spalle',
     'Tricipiti',
     'Bicipiti',
+    'Gambe',
     'Core',
   ];
 
@@ -77,12 +78,12 @@ class _StatsScreenState extends State<StatsScreen>
   };
 
   static const Map<String, Color> _groupColors = {
-    'Petto': Color(0xFFE65100),
-    'Dorso': Color(0xFFFF6F00),
-    'Gambe': Color(0xFFF57C00),
+    'Petto': Color(0xFFD32F2F),
+    'Dorso': Color(0xFFE64A19),
     'Spalle': Color(0xFFFF9700),
-    'Tricipiti': Color(0xFFFFB74D),
-    'Bicipiti': Color(0xFFFFD54F),
+    'Tricipiti': Color(0xFFFFC107),
+    'Bicipiti': Color(0xFFFFEE58),
+    'Gambe': Color(0xFFFFF9C4),
     'Core': Colors.white,
   };
 
@@ -113,6 +114,16 @@ class _StatsScreenState extends State<StatsScreen>
     _oneRmAnimController.forward();
 
     _loadExercisesAndStats();
+    // Ascolta il refresh globale scattato dal main
+    globalRefreshNotifier.addListener(_onGlobalRefreshTriggered);
+  }
+
+  void _onGlobalRefreshTriggered() {
+    if (mounted) {
+      _loadExercisesAndStats();
+      _generalAnimController.forward(from: 0.0);
+      _oneRmAnimController.forward(from: 0.0);
+    }
   }
 
   void _onScroll() {
@@ -130,6 +141,7 @@ class _StatsScreenState extends State<StatsScreen>
     _scrollController.dispose();
     _generalAnimController.dispose();
     _oneRmAnimController.dispose();
+    globalRefreshNotifier.removeListener(_onGlobalRefreshTriggered);
     super.dispose();
   }
 
@@ -891,7 +903,7 @@ class _StatsScreenState extends State<StatsScreen>
                           blendMode: BlendMode.dstIn,
                           child: SingleChildScrollView(
                             controller: _scrollController,
-                            physics: const BouncingScrollPhysics(),
+                            physics: const ClampingScrollPhysics(),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16.0,
                               vertical: 8.0,

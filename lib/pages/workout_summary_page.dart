@@ -140,9 +140,13 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen>
   }
 
   Future<void> _calculateSessionStats() async {
-    final startTime = widget.session.startTime;
-    final endTime = widget.session.endTime ?? DateTime.now();
-    _totalDurationSeconds = max(0, endTime.difference(startTime).inSeconds);
+    if (widget.session.totalDurationSeconds > 0) {
+      _totalDurationSeconds = widget.session.totalDurationSeconds;
+    } else {
+      final startTime = widget.session.startTime;
+      final endTime = widget.session.endTime ?? DateTime.now();
+      _totalDurationSeconds = max(0, endTime.difference(startTime).inSeconds);
+    }
 
     final sets =
         await widget.isar.workoutSets

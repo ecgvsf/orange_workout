@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:isar/isar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../main.dart';
 import '../models/exercise.dart';
 import '../models/session.dart';
 import '../models/workout_set.dart';
@@ -68,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen>
     _currentWeek = _generateCurrentWeek(_selectedDate);
 
     _loadDataFromDatabase();
+    globalRefreshNotifier.addListener(_loadDataFromDatabase);
 
     // Ricarica automaticamente i dati se vengono salvate nuove sessioni o serie
     if (widget.isar != null) {
@@ -88,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen>
     _sessionSubscription?.cancel();
     _setSubscription?.cancel();
     _profileSubscription?.cancel();
+    globalRefreshNotifier.removeListener(_loadDataFromDatabase);
     super.dispose();
   }
 
@@ -222,186 +225,212 @@ class _HomeScreenState extends State<HomeScreen>
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 0, 0, 0),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Ciao, $_userName',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF9700),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.settings,
-                        size: 32,
-                        color: Colors.white,
-                      ),
-                      onPressed: () {
-                        // Navigazione Impostazioni
-                      },
-                    ),
-                  ),
-                ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Altezza totale disponibile per la schermata
+            final double totalHeight = constraints.maxHeight;
+
+            // Spazio occupato dagli elementi fissi superiori e padding/margini:
+            // Header (~50) + Divider (~20) + Calendario (~80) + Divider (~20) + padding e distanziatori vari (~100)
+            const double fixedElementsHeight = 270.0;
+            final double dynamicRemainingHeight =
+            (totalHeight - fixedElementsHeight).clamp(380.0, 1200.0);
+
+            // Suddivisione proporzionale identica a flex: 20 e flex: 12 (totale 32 parti)
+            final double heatmapHeight = dynamicRemainingHeight * (20.0 / 32.0);
+            final double bottomRowHeight = dynamicRemainingHeight * (12.0 / 32.0);
+
+            return SingleChildScrollView(
+              // Permette il pull-to-refresh senza rimbalzo elastico
+              physics: const ClampingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
               ),
-              const SizedBox(height: 16),
-              const Divider(color: Color(0xFFFF9700), thickness: 3, height: 1),
-              const SizedBox(height: 20),
-
-              // Calendario Settimanale
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children:
-                    _currentWeek.map((date) {
-                      final now = DateTime.now();
-                      final bool isToday =
-                          date.year == now.year &&
-                          date.month == now.month &&
-                          date.day == now.day;
-
-                      return Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          decoration: BoxDecoration(
-                            color:
-                                isToday
-                                    ? const Color(0xFFFF9700)
-                                    : const Color.fromARGB(0, 30, 30, 30),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color:
-                                  isToday ? Colors.transparent : Colors.white12,
-                            ),
-                          ),
-                          child: Column(
-                            children: [
-                              const SizedBox(height: 4),
-                              Text(
-                                date.day.toString().padLeft(2, '0'),
-                                style: TextStyle(
-                                  color:
-                                      isToday ? Colors.white : Colors.white54,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _dayNames[date.weekday - 1],
-                                style: TextStyle(
-                                  color:
-                                      isToday ? Colors.white : Colors.white54,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                            ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 12.0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // --- 1. HEADER (Ciao, Andrea + Impostazioni) ---
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Ciao, $_userName',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      );
-                    }).toList(),
-              ),
-              const SizedBox(height: 20),
-              const Divider(color: Color(0xFFFF9700), thickness: 3, height: 1),
-              const SizedBox(height: 16),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF9700),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.settings,
+                              size: 32,
+                              color: Colors.white,
+                            ),
+                            onPressed: () {
+                              // Navigazione Impostazioni
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(
+                      color: Color(0xFFFF9700),
+                      thickness: 3,
+                      height: 1,
+                    ),
+                    const SizedBox(height: 16),
 
-              // Layout Modulare
-              Expanded(
-                child:
-                    _isLoading
-                        ? const Center(
+                    // --- 2. CALENDARIO SETTIMANALE ---
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: _currentWeek.map((date) {
+                        final now = DateTime.now();
+                        final bool isToday =
+                            date.year == now.year &&
+                                date.month == now.month &&
+                                date.day == now.day;
+
+                        return Expanded(
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isToday
+                                  ? const Color(0xFFFF9700)
+                                  : const Color.fromARGB(0, 30, 30, 30),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: isToday
+                                    ? Colors.transparent
+                                    : Colors.white12,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                const SizedBox(height: 4),
+                                Text(
+                                  date.day.toString().padLeft(2, '0'),
+                                  style: TextStyle(
+                                    color: isToday
+                                        ? Colors.white
+                                        : Colors.white54,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _dayNames[date.weekday - 1],
+                                  style: TextStyle(
+                                    color: isToday
+                                        ? Colors.white
+                                        : Colors.white54,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(
+                      color: Color(0xFFFF9700),
+                      thickness: 3,
+                      height: 1,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // --- 3. SEZIONE CONTENUTI FLESSIBILI (HEATMAP + GRAFICI) ---
+                    if (_isLoading)
+                      const SizedBox(
+                        height: 300,
+                        child: Center(
                           child: CircularProgressIndicator(
                             color: Color(0xFFFF9700),
                           ),
-                        )
-                        : Column(
+                        ),
+                      )
+                    else ...[
+                      // HeatMap a tutta larghezza (calcolata con il 62.5% dello spazio)
+                      SizedBox(
+                        height: heatmapHeight,
+                        child: MuscleHeatmapCard(
+                          title: 'HeatMap',
+                          weeklyWorkouts: _weeklyMuscleWorkouts,
+                          initialGender: _userGender,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Sezione inferiore a due colonne (il restante 37.5% dello spazio)
+                      SizedBox(
+                        height: bottomRowHeight,
+                        child: Row(
                           children: [
-                            // 1. CARD IN ALTO: Heatmap a tutta larghezza
+                            // Colonna Sinistra: Volume Chart
                             Expanded(
-                              flex: 20,
-                              child: MuscleHeatmapCard(
-                                title: 'HeatMap',
-                                weeklyWorkouts: _weeklyMuscleWorkouts,
-                                initialGender: _userGender,
+                              child: VolumeChartCard(
+                                title: 'Volume',
+                                dailyVolumes: _dailyVolumes,
                               ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(width: 12),
 
-                            // 2. SEZIONE INFERIORE: Due colonne
+                            // Colonna Destra: Due card orizzontali (Workout e Routine)
                             Expanded(
-                              flex: 12,
-                              child: Row(
+                              child: Column(
                                 children: [
-                                  // Colonna Sinistra: Volume Chart
                                   Expanded(
-                                    child: VolumeChartCard(
-                                      title: 'Volume',
-                                      dailyVolumes: _dailyVolumes,
+                                    child: _buildHorizontalActionCard(
+                                      title: 'Workout',
+                                      icon: Icons.fitness_center_rounded,
+                                      iconColor: const Color(0xFFFF9700),
+                                      onTap: () {
+                                        if (widget.isar != null) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) =>
+                                                  ExercisesScreen(
+                                                    isar: widget.isar!,
+                                                  ),
+                                            ),
+                                          );
+                                        }
+                                      },
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
-
-                                  // Colonna Destra: Due card orizzontali (Workout e Routine)
+                                  const SizedBox(height: 12),
                                   Expanded(
-                                    child: Column(
-                                      children: [
-                                        Expanded(
-                                          child: _buildHorizontalActionCard(
-                                            title: 'Workout',
-                                            icon: Icons.fitness_center_rounded,
-                                            iconColor: const Color(0xFFFF9700),
-                                            onTap: () {
-                                              if (widget.isar != null) {
-                                                Navigator.push(
-                                                  context,
-                                                  MaterialPageRoute(
-                                                    builder:
-                                                        (context) =>
-                                                            ExercisesScreen(
-                                                              isar:
-                                                                  widget.isar!,
-                                                            ),
-                                                  ),
-                                                );
-                                              }
-                                            },
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Expanded(
-                                          child: _buildHorizontalActionCard(
-                                            title: 'Routine',
-                                            icon: Icons.library_books_rounded,
-                                            iconColor: const Color(0xFFFF9700),
-                                            onTap: () {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder:
-                                                      (context) =>
-                                                          RoutinesScreen(
-                                                            isar: widget.isar,
-                                                          ),
+                                    child: _buildHorizontalActionCard(
+                                      title: 'Routine',
+                                      icon: Icons.library_books_rounded,
+                                      iconColor: const Color(0xFFFF9700),
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                RoutinesScreen(
+                                                  isar: widget.isar,
                                                 ),
-                                              );
-                                            },
                                           ),
-                                        ),
-                                      ],
+                                        );
+                                      },
                                     ),
                                   ),
                                 ],
@@ -409,12 +438,16 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ],
                         ),
-              ),
+                      ),
+                    ],
 
-              // Spazio di rispetto per non coprire elementi con la FloatingNavBar
-              const SizedBox(height: 35),
-            ],
-          ),
+                    // Distanziatore per non coprire i pulsanti con la FloatingNavBar
+                    const SizedBox(height: 35),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

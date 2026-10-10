@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 /// I 4 Macro-Split operativi per il calcolo del volume e grafici aggregati
 enum MacroSplit {
-  push('Push (Spinta)', Color(0xFFFF9700)),
-  pull('Pull (Tirata)', Color(0xFFFFB74D)),
-  legs('Legs (Gambe)', Color(0xFFE65100)),
-  core('Core & Tronco', Colors.white54);
+  push('Push (Spinta)', Color(0xFFD32F2F)),
+  pull('Pull (Tirata)', Color(0xFFFF9700)),
+  legs('Legs (Gambe)', Color(0xFFFFEE58)),
+  core('Core & Tronco', Colors.white);
 
   final String label;
   final Color color;

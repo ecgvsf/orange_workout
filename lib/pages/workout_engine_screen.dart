@@ -880,9 +880,12 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
       return;
     }
 
-    WorkoutNotificationService().cancelRestNotifications();
+
     if (Platform.isIOS && _activeLiveActivityId != null) {
       AppleLiveActivityService.stopActivity(_activeLiveActivityId!);
+    } else {
+      _islandChannel.invokeMethod('hideIsland');
+      _islandChannel.invokeMethod('stopSilentNotification');
     }
 
     final now = DateTime.now();
@@ -892,6 +895,8 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
       targetDate.month,
       targetDate.day,
     );
+
+    final int currentSessionDuration = DateTime.now().difference(_startTime).inSeconds;
 
     late Session targetSession;
     await widget.isar.writeTxn(() async {
@@ -903,6 +908,11 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
 
       if (existingSession != null) {
         existingSession.endTime = now;
+        existingSession.totalDurationSeconds =
+            (existingSession.totalDurationSeconds > 0
+                ? existingSession.totalDurationSeconds
+                : existingSession.endTime!.difference(existingSession.startTime).inSeconds)
+                + currentSessionDuration;
         if (widget.selectedRoutine != null) {
           existingSession.routine.value = widget.selectedRoutine;
         }
@@ -912,11 +922,11 @@ class _WorkoutEngineScreenState extends State<WorkoutEngineScreen>
         }
         targetSession = existingSession;
       } else {
-        final newSession =
-            Session()
-              ..date = sessionDate
-              ..startTime = _startTime
-              ..endTime = now;
+        final newSession = Session()
+          ..date = sessionDate
+          ..startTime = _startTime
+          ..endTime = now
+          ..totalDurationSeconds = currentSessionDuration;
 
         if (widget.selectedRoutine != null) {
           newSession.routine.value = widget.selectedRoutine;

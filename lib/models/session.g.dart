@@ -31,6 +31,11 @@ const SessionSchema = CollectionSchema(
       id: 2,
       name: r'startTime',
       type: IsarType.dateTime,
+    ),
+    r'totalDurationSeconds': PropertySchema(
+      id: 3,
+      name: r'totalDurationSeconds',
+      type: IsarType.long,
     )
   },
   estimateSize: _sessionEstimateSize,
@@ -86,6 +91,7 @@ void _sessionSerialize(
   writer.writeDateTime(offsets[0], object.date);
   writer.writeDateTime(offsets[1], object.endTime);
   writer.writeDateTime(offsets[2], object.startTime);
+  writer.writeLong(offsets[3], object.totalDurationSeconds);
 }
 
 Session _sessionDeserialize(
@@ -99,6 +105,7 @@ Session _sessionDeserialize(
   object.endTime = reader.readDateTimeOrNull(offsets[1]);
   object.id = id;
   object.startTime = reader.readDateTime(offsets[2]);
+  object.totalDurationSeconds = reader.readLong(offsets[3]);
   return object;
 }
 
@@ -115,6 +122,8 @@ P _sessionDeserializeProp<P>(
       return (reader.readDateTimeOrNull(offset)) as P;
     case 2:
       return (reader.readDateTime(offset)) as P;
+    case 3:
+      return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -534,6 +543,62 @@ extension SessionQueryFilter
       ));
     });
   }
+
+  QueryBuilder<Session, Session, QAfterFilterCondition>
+      totalDurationSecondsEqualTo(int value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'totalDurationSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Session, Session, QAfterFilterCondition>
+      totalDurationSecondsGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'totalDurationSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Session, Session, QAfterFilterCondition>
+      totalDurationSecondsLessThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'totalDurationSeconds',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Session, Session, QAfterFilterCondition>
+      totalDurationSecondsBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'totalDurationSeconds',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
 }
 
 extension SessionQueryObject
@@ -591,6 +656,19 @@ extension SessionQuerySortBy on QueryBuilder<Session, Session, QSortBy> {
       return query.addSortBy(r'startTime', Sort.desc);
     });
   }
+
+  QueryBuilder<Session, Session, QAfterSortBy> sortByTotalDurationSeconds() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'totalDurationSeconds', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Session, Session, QAfterSortBy>
+      sortByTotalDurationSecondsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'totalDurationSeconds', Sort.desc);
+    });
+  }
 }
 
 extension SessionQuerySortThenBy
@@ -642,6 +720,19 @@ extension SessionQuerySortThenBy
       return query.addSortBy(r'startTime', Sort.desc);
     });
   }
+
+  QueryBuilder<Session, Session, QAfterSortBy> thenByTotalDurationSeconds() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'totalDurationSeconds', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Session, Session, QAfterSortBy>
+      thenByTotalDurationSecondsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'totalDurationSeconds', Sort.desc);
+    });
+  }
 }
 
 extension SessionQueryWhereDistinct
@@ -661,6 +752,12 @@ extension SessionQueryWhereDistinct
   QueryBuilder<Session, Session, QDistinct> distinctByStartTime() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'startTime');
+    });
+  }
+
+  QueryBuilder<Session, Session, QDistinct> distinctByTotalDurationSeconds() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'totalDurationSeconds');
     });
   }
 }
@@ -688,6 +785,12 @@ extension SessionQueryProperty
   QueryBuilder<Session, DateTime, QQueryOperations> startTimeProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'startTime');
+    });
+  }
+
+  QueryBuilder<Session, int, QQueryOperations> totalDurationSecondsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'totalDurationSeconds');
     });
   }
 }

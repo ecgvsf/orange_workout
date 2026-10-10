@@ -170,7 +170,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFF121212),
+        backgroundColor: Color(0xFF000000),
         body: Center(
           child: CircularProgressIndicator(color: Color(0xFFFF9700)),
         ),
@@ -181,7 +181,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final double cutOffBottom = (bottomInset).clamp(0.0, double.infinity);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: const Color(0xFF000000),
       body: SafeArea(
         bottom: false,
         child: Padding(
@@ -1148,11 +1148,20 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
 
                 // Salva le biometriche in Isar
                 await widget.isar.writeTxn(() async {
-                  widget.userProfile
-                    ..name = newN
-                    ..bodyWeight = newW
-                    ..height = newH;
-                  await widget.isar.userProfiles.put(widget.userProfile);
+                  final current = await widget.isar.userProfiles.where().findFirst();
+                  if (current != null) {
+                    current
+                      ..name = newN
+                      ..bodyWeight = newW
+                      ..height = newH;
+                    await widget.isar.userProfiles.put(current);
+                  } else {
+                    widget.userProfile
+                      ..name = newN
+                      ..bodyWeight = newW
+                      ..height = newH;
+                    await widget.isar.userProfiles.put(widget.userProfile);
+                  }
                 });
 
                 HapticFeedback.mediumImpact();
